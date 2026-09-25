@@ -262,7 +262,6 @@ Admin booking access is **view-only** and supports filtering by:
 Properties are published **immediately after submission**.
 
 There is currently **no mandatory admin approval queue**.
-
 ```text
 Property Created
       ↓
