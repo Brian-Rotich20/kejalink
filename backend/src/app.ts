@@ -21,7 +21,7 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
 
   registerErrorHandler(app);
   await registerCors(app);
-  await registerRateLimit(app, { max: opts?.rateLimitMax });
+  await registerRateLimit(app, opts?.rateLimitMax === undefined ? {} : { max: opts.rateLimitMax });
 
   // All API routes live under /api.
   await app.register(
@@ -40,3 +40,4 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
 }
 
 export type App = Awaited<ReturnType<typeof buildApp>>;
+
