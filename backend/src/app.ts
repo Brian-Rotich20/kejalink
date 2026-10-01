@@ -5,6 +5,8 @@ import { success } from "./lib/response";
 import { registerCors } from "./plugins/cors";
 import { registerErrorHandler } from "./plugins/error-handler";
 import { registerRateLimit } from "./plugins/rate-limit";
+import { authenticate } from "./middleware/auth.middleware"
+import { authRoutes } from "./modules/auth/auth.routes";
 
 export async function buildApp(opts?: { rateLimitMax?: number }) {
   const app = Fastify({
@@ -18,6 +20,7 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
   // Zod is the single validation/serialization layer.
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  app.addHook("preHandler", authenticate);
 
   registerErrorHandler(app);
   await registerCors(app);
@@ -28,10 +31,7 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
     async (api) => {
       api.get("/health", async () => success({ status: "ok" }));
 
-      // Module routes are registered here as they are built:
-      //   await api.register(userRoutes, { prefix: "/users" });
-      //   await api.register(propertyRoutes, { prefix: "/properties" });
-      //   ...
+      await api.register(authRoutes);
     },
     { prefix: "/api" },
   );
