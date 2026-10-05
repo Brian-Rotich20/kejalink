@@ -2,7 +2,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "rootDir": ".",
-    "types": ["node"]
+    "types": ["node"],
+    "moduleResolution": "node",
+
   },
-  "include": ["drizzle.config.ts"]
+  "include": ["drizzle.config.ts",  "src/db/**/*"]
 }
