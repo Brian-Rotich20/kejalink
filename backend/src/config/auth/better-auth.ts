@@ -4,10 +4,13 @@ import { APIError } from "better-auth/api";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/client";
 import * as schema from "../../db/schema";
+import { PUBLIC_ROLES, type PublicRole } from "../../db/schema/enums";
 import { env } from "../env";
 
-/** Roles a person may pick when registering publicly. ADMIN is never allowed here. */
-const PUBLIC_ROLES = ["TENANT", "SEEKER"] as const;
+export const NAME_MAX_LENGTH = 100;
+
+const isPublicRole = (value: unknown): value is PublicRole =>
+  typeof value === "string" && (PUBLIC_ROLES as readonly string[]).includes(value);
 
 export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
@@ -19,6 +22,10 @@ export const auth = betterAuth({
     provider: "pg",
     schema, // tables are singular: user, session, account, verification
   }),
+
+  // Profile edits go through PATCH /api/users/me only (strict, validated).
+  // Better Auth's /update-user would accept the `role` additional field.
+  disabledPaths: ["/update-user"],
 
   emailAndPassword: {
     enabled: true,
@@ -34,7 +41,7 @@ export const auth = betterAuth({
 
   user: {
     additionalFields: {
-      // Chosen at registration (TENANT | SEEKER). Validated in the hook below.
+      // Chosen at registration (TENANT | SEEKER). Validated in the create hook.
       role: {
         type: "string",
         required: true,
@@ -55,16 +62,29 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user) => {
-          const role = (user as { role?: unknown }).role ?? "SEEKER";
+          const role = user.role ?? "SEEKER";
+          if (!isPublicRole(role)) {
+            throw new APIError("BAD_REQUEST", { message: "Account type must be TENANT or SEEKER" });
+          }
 
-          if (!PUBLIC_ROLES.includes(role as (typeof PUBLIC_ROLES)[number])) {
+          const name = typeof user.name === "string" ? user.name.trim() : "";
+          if (name.length < 1 || name.length > NAME_MAX_LENGTH) {
             throw new APIError("BAD_REQUEST", {
-              message: "Account type must be TENANT or SEEKER",
+              message: `Name must be between 1 and ${NAME_MAX_LENGTH} characters`,
             });
           }
 
           // Force status regardless of anything the client sent.
-          return { data: { ...user, role, status: "ACTIVE" } };
+          return { data: { ...user, name, role, status: "ACTIVE" } };
+        },
+      },
+      update: {
+        // Defence in depth: role/status may only change through server code
+        // (admin service, seed script), never through an HTTP auth endpoint.
+        before: async (data, context) => {
+          if (context !== null && ("role" in data || "status" in data)) {
+            throw new APIError("FORBIDDEN", { message: "Role and status cannot be changed here" });
+          }
         },
       },
     },
@@ -79,9 +99,7 @@ export const auth = betterAuth({
             .limit(1);
 
           if (!row || row.status !== "ACTIVE") {
-            throw new APIError("FORBIDDEN", {
-              message: "This account is suspended or banned",
-            });
+            throw new APIError("FORBIDDEN", { message: "This account is suspended or banned" });
           }
         },
       },
