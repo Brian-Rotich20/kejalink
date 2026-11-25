@@ -36,14 +36,17 @@ export type TestApp = { app: FastifyInstance; storage: FakeImageStorage };
  * Build the app with a fake image host. App modules are imported dynamically so
  * a test file can override process.env at its top level first.
  */
-export async function createTestApp(): Promise<TestApp> {
+export async function createTestApp(
+  options: { rateLimitMax?: number; beforeReady?: (app: FastifyInstance) => void } = {},
+): Promise<TestApp> {
   const { buildApp } = await import("../src/app");
   const { setImageStorage } = await import("../src/modules/uploads/upload.storage");
   const storage = new FakeImageStorage();
   setImageStorage(storage);
-  const app = await buildApp({ rateLimitMax: 100_000 });
+  const app = (await buildApp({ rateLimitMax: options.rateLimitMax ?? 100_000 })) as unknown as FastifyInstance;
+  options.beforeReady?.(app);
   await app.ready();
-  return { app: app as unknown as FastifyInstance, storage };
+  return { app, storage };
 }
 
 export type ApiResponse<T = any> = {
