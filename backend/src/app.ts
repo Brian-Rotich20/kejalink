@@ -1,16 +1,17 @@
 import Fastify, { type FastifyServerOptions } from "fastify";
 import { serializerCompiler, validatorCompiler, type ZodTypeProvider, } from "fastify-type-provider-zod";
 import { env } from "./config/env";
-import { success } from "./lib/response";
 import { registerCors } from "./plugins/cors";
 import { registerErrorHandler } from "./plugins/error-handler";
 import { registerRateLimit } from "./plugins/rate-limit";
 import { registerAuth } from "./plugins/auth";
 import { authRoutes } from "./modules/auth/auth.routes";
+import { healthRoutes } from "./modules/health/health.routes";
 import { userRoutes } from "./modules/users/user.routes";
 
 export async function buildApp(opts?: { rateLimitMax?: number }) {
   const options: FastifyServerOptions = {
+    requestTimeout: 30_000,
     logger: {
       level: env.LOG_LEVEL ?? (env.NODE_ENV === "test" ? "silent" : "info"),
       redact: ["req.headers.authorization", "req.headers.cookie", 'res.headers["set-cookie"]'],
@@ -33,8 +34,7 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
   // All API routes live under /api.
   await app.register(
     async (api) => {
-      api.get("/health", async () => success({ status: "ok" }));
-
+      await api.register(healthRoutes, { prefix: "/health" });
       await api.register(authRoutes);
       await api.register(userRoutes, { prefix: "/users" });
     },
