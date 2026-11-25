@@ -9,7 +9,7 @@ const queryClient = postgres(env.DATABASE_URL, {
     max: 10,
     idle_timeout: 20,
 });
-
+    
 
 export const db = drizzle(queryClient, { schema });
 export type Database = typeof db;

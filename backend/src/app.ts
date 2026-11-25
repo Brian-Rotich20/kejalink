@@ -7,6 +7,7 @@ import { registerErrorHandler } from "./plugins/error-handler";
 import { registerRateLimit } from "./plugins/rate-limit";
 import { authenticate } from "./middleware/auth.middleware"
 import { authRoutes } from "./modules/auth/auth.routes";
+import { userRoutes } from "./modules/users/user.routes";
 
 export async function buildApp(opts?: { rateLimitMax?: number }) {
   const app = Fastify({
@@ -32,6 +33,7 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
       api.get("/health", async () => success({ status: "ok" }));
 
       await api.register(authRoutes);
+      await api.register(userRoutes, { prefix: "/users" });
     },
     { prefix: "/api" },
   );

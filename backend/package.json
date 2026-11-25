@@ -1,10 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "main": "dist/server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/server.ts",
@@ -15,12 +12,12 @@
     "auth:generate": "npx @better-auth/cli generate --config src/config/auth/better-auth.ts --output src/db/schema/auth.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "type-check": "tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "KejaLink backend API",
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^11.3.0",
@@ -39,5 +36,8 @@
     "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

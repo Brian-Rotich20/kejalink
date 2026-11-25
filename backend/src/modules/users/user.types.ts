@@ -12,7 +12,7 @@ export type UserProfile = {
 };
 
 export type UpdateUserProfileInput = {
-  name?: string;
-  image?: string | null;
+  name?: string | undefined;
+  image?: string | null | undefined;
 };
 
