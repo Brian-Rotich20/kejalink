@@ -1,3 +1,7 @@
+// Windows dev: "localhost" can resolve to ::1 first while Postgres listens on IPv4 only.
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
 import 'dotenv/config';
 import { z } from 'zod';
 
