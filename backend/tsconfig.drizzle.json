@@ -6,5 +6,5 @@
     "moduleResolution": "node",
 
   },
-  "include": ["drizzle.config.ts",  "src/db/**/*"]
+  "include": ["drizzle.config.ts", "src/db/**/*", "src/config/env.ts"]
 }
