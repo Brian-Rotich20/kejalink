@@ -1,552 +1,150 @@
-# KejaLink — Architecture
+# KejaLink: Architecture
 
-## 1. Architecture Overview
-
-KejaLink uses a simple, modular backend architecture:
+## 1. Overview
 
 ```text
-User
-  ↓
-Next.js Frontend
-  ↓ HTTPS + Session Cookie
-Fastify API
-  ↓
-Routes
-  ↓
-Controllers
-  ↓
-Services
-  ↓
-Drizzle ORM
-  ↓
-PostgreSQL
+Next.js frontend ──HTTPS + session cookie──▶ reverse proxy (1 hop) ──▶ Fastify API
+                                                                    │
+           routes → controllers → services → Drizzle ORM → PostgreSQL
+                                                                    │
+                              Better Auth (auth, sessions)  ·  Cloudinary (images)
 ```
 
-Supporting services:
+**Stack:** Node.js ≥ 22, TypeScript (strict), Fastify 5, Zod 4 (fastify-type-provider-zod), PostgreSQL, Drizzle ORM and drizzle-kit, Better Auth, Cloudinary, @fastify/multipart, @fastify/cors, @fastify/rate-limit, pino, Vitest.
+
+V1 has no microservices, search engine, payments or notifications.
+
+## 2. Authentication
+
+Better Auth owns `user`, `session`, `account` (password hashes) and `verification`. The app adds two fields to `user`:
+- `role`: `TENANT`, `SEEKER` or `ADMIN`. It is chosen at sign-up (TENANT or SEEKER only) and never editable through the API.
+- `status`: `ACTIVE`, `SUSPENDED` or `BANNED`. It is server-controlled.
+
+Both are `text NOT NULL` with CHECK constraints. There is no phone field.
+
+- `/api/auth/*` is bridged to Better Auth (`modules/auth/auth.routes.ts`). The bridge builds the URL from `BETTER_AUTH_URL`, never from the `Host` header, and passes the client IP that Fastify resolved.
+- Better Auth hooks:
+  - `user.create.before` enforces the TENANT/SEEKER allow-list, validates the name and forces `ACTIVE`;
+  - `user.update.before` blocks role/status changes from HTTP endpoints;
+  - `session.create.before` blocks login for non-ACTIVE users.
+- `/update-user` and the other unused endpoints are disabled (see api.md).
+- `plugins/auth.ts` loads the session **onRequest**, and only when a session cookie is present; it skips `/api/auth/*` and `/api/health*`. It also enforces the Origin allow-list on cookie-authenticated mutations.
+- Route guards are onRequest hooks, so they run before body parsing and validation:
+  - `requireAuth`: a signed-in **ACTIVE** user. Non-ACTIVE users get 403 `ACCOUNT_SUSPENDED`.
+  - `requireRole(...roles)`.
+- Suspend or ban (admin) sets the status and deletes all of the user's sessions in one transaction.
+
+## 3. Domain model
 
 ```text
-Better Auth → Authentication & Sessions
-Cloudinary  → Property Images
-M-Pesa      → Future Integration
+user ─┬─ properties (tenant_id) ─┬─ uploads
+      │                          └─ bookings (property_id)
+      └─ bookings (seeker_id)
 ```
 
-The stack remains:
+**Properties:** `status` (`PUBLISHED` or `REJECTED`) is moderation; `is_available` is occupancy; `deleted_at` is the soft delete. Listings are **published immediately on creation, with zero or more images**. An admin may reject a listing (with a reason) and later restore it. A tenant may edit a rejected listing, but its status does not change.
 
-* **Next.js** — frontend
-* **Fastify** — backend API
-* **TypeScript** — application language
-* **Drizzle ORM** — database access
-* **PostgreSQL** — database
-* **Zod** — validation
-* **Better Auth** — authentication/session management
-* **Cloudinary** — image storage
+**Uploads:** at most 10 images per property, 5 MB each, JPEG/PNG/WebP (checked by magic bytes). They are stored in Cloudinary under `kejalink/properties/{propertyId}`, and the public id is stored but never exposed. There is exactly one primary image while any images exist.
 
-No microservices, Elasticsearch, or M-Pesa integration in V1.
-
----
-
-# 2. Authentication Architecture
-
-Better Auth owns authentication and session management.
-
-There is **one user identity table**, not a separate application users table.
-
-Better Auth manages:
+**Bookings** are rent requests: one optional preferred move-in date and a message, with no date ranges or payments.
 
 ```text
-user
-session
-account
-verification
+PENDING ──confirm──▶ CONFIRMED ──cancel (seeker)──▶ CANCELLED
+   │ reject (tenant/admin removal) ─▶ REJECTED
+   └ cancel (seeker) ─▶ CANCELLED
 ```
 
-The application's custom user fields are added to the Better Auth `user` table:
+Confirming a booking, in one transaction: the booking becomes CONFIRMED, the property's other PENDING requests are REJECTED, and `is_available` is set to false. Cancelling a CONFIRMED booking sets `is_available` back to true.
 
-```text
-role
-phone
-status
-```
+## 4. Authorization (enforced in services)
 
-### Roles
+| Role | Can |
+|---|---|
+| TENANT | Create, edit and soft-delete own listings; manage their images; see and decide requests on own listings |
+| SEEKER | Browse; create requests; see and cancel own requests |
+| ADMIN | List/view users and change status (not roles, not other admins); list, reject, restore and soft-delete any listing; view all bookings (read-only) |
 
-```text
-TENANT
-SEEKER
-ADMIN
-```
+- Property visibility: public if PUBLISHED, live and the tenant is ACTIVE; the owner also sees REJECTED; admins see everything. Anything else is **404**.
+- A booking is visible only to its seeker, the property owner and admins; anyone else gets **404**.
+- Owner-only mutations on another tenant's listing return **403**.
 
-### Account Status
-
-```text
-ACTIVE
-SUSPENDED
-BANNED
-```
-
-Passwords are stored and managed by Better Auth through the `account` table.
-
-The application must **not** maintain its own password field.
-
----
-
-# 3. Domain Model
-
-KejaLink's main domain tables are:
-
-```text
-user
-   │
-   ├── properties
-   │       │
-   │       └── uploads
-   │
-   └── bookings
-```
-
-### Properties
-
-Each property belongs to one Tenant:
-
-```text
-properties.tenant_id → user.id
-```
-
-Important fields include:
-
-```text
-id
-tenant_id
-title
-description
-property_type
-price_amount
-price_currency
-rent_period
-bedrooms
-bathrooms
-county
-area
-address_text
-latitude
-longitude
-amenities
-status
-is_available
-rejection_reason
-created_at
-updated_at
-```
-
-### Property Status
-
-```text
-DRAFT
-PUBLISHED
-UNPUBLISHED
-REJECTED
-ARCHIVED
-```
-
-`status` represents the **listing lifecycle**.
-
-`is_available` represents whether the property is **currently available for rent**.
-
-These are intentionally separate.
-
-Example:
-
-```text
-status = PUBLISHED
-is_available = false
-```
-
-means the listing is still visible but the property is currently unavailable.
-
----
-
-# 4. Property Images / Uploads
-
-The `uploads` table stores property images.
-
-```text
-uploads
-├── id
-├── property_id
-├── cloudinary_public_id
-├── url
-├── is_primary
-├── display_order
-└── created_at
-```
-
-Rules:
-
-* Maximum 10 images per property
-* Maximum 5 MB per image
-* JPEG, PNG and WebP
-* Images stored in Cloudinary
-* Store the Cloudinary public ID as well as the URL
-* One primary image per property
-
----
-
-# 5. Booking Architecture
-
-For V1, a booking represents a **rental request**, not a hotel-style reservation.
-
-There is no start/end date range.
-
-```text
-bookings
-├── id
-├── property_id
-├── seeker_id
-├── status
-├── preferred_move_in_date
-├── message
-├── decision_reason
-├── decided_at
-├── created_at
-└── updated_at
-```
-
-### Booking Status
-
-```text
-PENDING
-CONFIRMED
-REJECTED
-CANCELLED
-```
-
-### Booking Flow
-
-```text
-Seeker submits request
-        ↓
-     PENDING
-        ↓
- Tenant confirms/rejects
-     ↙       ↘
-CONFIRMED   REJECTED
-    ↓
-Property becomes unavailable
-```
-
-When a Tenant confirms a request:
-
-1. Booking becomes `CONFIRMED`
-2. Other pending requests for the property are rejected
-3. Property becomes `is_available = false`
-
-These operations happen inside **one database transaction**.
-
----
-
-# 6. Authorization
-
-Authorization is enforced in the **service layer**.
-
-### Tenant
-
-* Create properties
-* Manage own properties
-* Upload images to own properties
-* View booking requests for own properties
-* Confirm/reject own property booking requests
-
-### Seeker
-
-* Browse properties
-* View property details
-* Create booking requests
-* View own bookings
-* Cancel own bookings
-
-### Admin
-
-* Manage users
-* Suspend/ban users
-* Manage properties
-* Unpublish/reject/archive properties
-* View all bookings
-
-Users cannot access another user's resources simply by guessing an ID.
-
-Ownership checks are always performed by the service layer.
-
----
-
-# 7. Property Publishing
-
-Properties are **published immediately** once the required information and at least one image are provided.
-
-There is no mandatory admin approval queue in V1.
-
-```text
-Create Property
-      ↓
-  PUBLISHED
-      ↓
-Admin can later
-unpublish/reject
-if necessary
-```
-
-This keeps the V1 marketplace simple and avoids introducing a manual review queue.
-
----
-
-# 8. Backend Folder Structure
+## 5. Folder structure
 
 ```text
 backend/
 ├── src/
+│   ├── app.ts                     # buildApp(): plugins + routes (no listen)
+│   ├── server.ts                  # listen, graceful shutdown
 │   ├── config/
-│   │   └── env.ts
-│   │
+│   │   ├── env.ts                 # Zod-validated env (+ Windows IPv4-first DNS)
+│   │   └── auth/better-auth.ts    # Better Auth instance and hooks
 │   ├── db/
-│   │   ├── schema/
-│   │   │   ├── auth.ts
-│   │   │   ├── properties.ts
-│   │   │   ├── uploads.ts
-│   │   │   ├── bookings.ts
-│   │   │   └── index.ts
-│   │   └── client.ts
-│   │
+│   │   ├── client.ts              # postgres-js pool, Drizzle, Tx type
+│   │   ├── schema/                # auth, enums, properties, uploads, bookings
+│   │   └── migrations/            # SQL + drizzle meta
+│   ├── lib/                       # errors, response, validation, db, image, logger
+│   ├── plugins/                   # auth, cors, error-handler, multipart, rate-limit
 │   ├── modules/
-│   │   ├── auth/
-│   │   │   └── auth.ts
-│   │   │
-│   │   ├── users/
-│   │   │   ├── user.routes.ts
-│   │   │   ├── user.controller.ts
-│   │   │   ├── user.service.ts
-│   │   │   └── user.schema.ts
-│   │   │
-│   │   ├── properties/
-│   │   │   ├── property.routes.ts
-│   │   │   ├── property.controller.ts
-│   │   │   ├── property.service.ts
-│   │   │   └── property.schema.ts
-│   │   │
-│   │   ├── uploads/
-│   │   │   ├── upload.routes.ts
-│   │   │   ├── upload.controller.ts
-│   │   │   ├── upload.service.ts
-│   │   │   ├── upload.schema.ts
-│   │   │   └── cloudinary.ts
-│   │   │
-│   │   ├── bookings/
-│   │   │   ├── booking.routes.ts
-│   │   │   ├── booking.controller.ts
-│   │   │   ├── booking.service.ts
-│   │   │   └── booking.schema.ts
-│   │   │
-│   │   └── admin/
-│   │       ├── admin.routes.ts
-│   │       ├── admin.controller.ts
-│   │       └── admin.service.ts
-│   │
-│   ├── plugins/
-│   │   ├── cors.ts
-│   │   ├── auth.ts
-│   │   └── error-handler.ts
-│   │
-│   ├── lib/
-│   │   ├── response.ts
-│   │   └── errors.ts
-│   │
-│   ├── app.ts
-│   └── server.ts
-│
-├── drizzle/
-│   └── migrations/
-│
-├── tests/
-├── .env
-├── .env.example
-├── .gitignore
-├── drizzle.config.ts
-├── package.json
-├── tsconfig.json
+│   │   ├── auth/                  # Better Auth bridge, auth types
+│   │   ├── health/
+│   │   ├── users/  properties/  uploads/  bookings/  admin/
+│   │   │     *.types.ts *.schema.ts *.service.ts *.controller.ts *.routes.ts
+│   │   └── uploads/upload.storage.ts   # ImageStorage seam (Cloudinary)
+│   ├── scripts/                   # seed-admin.ts, migrate.ts
+│   └── types/fastify.d.ts         # request.user
+├── tests/                         # Vitest suites + harness
+├── docs/                          # api, architecture, database, requirements, AUDIT, DECISIONS
+├── Dockerfile  .dockerignore  drizzle.config.ts  vitest.config.mts
 └── README.md
 ```
 
----
+## 6. Module responsibilities
 
-# 9. Module Responsibilities
+- **Routes** define the method and path, the onRequest guards, and Zod schemas for params, query and body.
+- **Controllers** are functional and thin: they read the request, call a service, and apply the envelope (`success` / `paginated`). They have no try/catch and no DB access. Admin controllers write the audit log line.
+- **Services** hold business rules, ownership checks, transactions and locks. They take plain data, never `request` or `reply`, and select explicit columns.
+- **Error handler** (`plugins/error-handler.ts`) is the single place that maps errors to responses:
 
-Each feature follows:
+| Error | Response |
+|---|---|
+| `AppError` | its own status and code |
+| Zod validation | 422 with field `details` |
+| Multipart errors | 413 / 415 |
+| Known Postgres codes | 409 / 422 / 503 |
+| Other Fastify 4xx | passed through |
+| Anything else | generic 500, logged server-side |
 
-```text
-Route
-  ↓
-Controller
-  ↓
-Service
-  ↓
-Database
-```
+## 7. Data integrity and concurrency
 
-### Routes
+See [database.md](database.md). In short:
+- Partial unique indexes back the booking and image rules.
+- The global lock order is **property row, then booking rows**.
+- Booking creation uses `FOR SHARE`; confirm, reject, cancel, property writes and uploads use `FOR UPDATE`.
+- Pool sessions have statement and idle-in-transaction timeouts.
 
-Responsible for:
+## 8. Security
 
-* HTTP method/path
-* Authentication requirement
-* Zod schema
-* Calling the controller
+- Better Auth hashes passwords and owns sessions. Cookies are HttpOnly and SameSite=Lax, and `__Secure-`/`Secure` when `BETTER_AUTH_URL` is https.
+- CORS and trusted origins come from `FRONTEND_URL` (a list). Origin checks apply to every cookie-authenticated mutation.
+- Every request is validated with Zod. Bodies are strict, and LIKE wildcards are escaped.
+- Uploads: ownership and limit checks happen before the body is read; then magic bytes must match the declared type, the size limit is 5 MB, the limit of 10 is re-checked under the lock, and remote assets are cleaned up if the transaction fails.
+- Rate limits: 100/min/IP globally and 10/min/IP on auth. `TRUST_PROXY` is a hop count, so a spoofed `X-Forwarded-For` cannot reset buckets.
+- Logs go through one pino logger that redacts cookies and authorization headers. Better Auth logs keep only the message, with emails and tokens masked. Stack traces stay server-side.
+- Env is validated at startup (names only in errors). There are no secrets in the repo.
 
-### Controllers
+## 9. Operations
 
-Responsible for:
+- `GET /api/health` is liveness; `GET /api/health/ready` checks the DB (503 when it is down).
+- Migrations run as a release step: `node dist/scripts/migrate.js` in the image, or `npm run db:migrate`. Never `push`.
+- The first admin is created with `npm run seed:admin` (idempotent).
+- Docker: a multi-stage image running `node dist/server.js` as a non-root user, with `TZ=UTC`.
+- CI (GitHub Actions) runs on Node 22 and 24: typecheck, build, migrate, drift check, tests, and `npm audit --omit=dev --audit-level=high`.
 
-* Reading request data
-* Calling services
-* Returning HTTP responses
-* Applying response envelopes
+## 10. Deferred (not in V1)
 
-Controllers should remain thin.
+M-Pesa and payments, deposits, date-range stays, a search engine, geo search, normalised amenities, a mandatory review queue, reviews, messaging, notifications, favourites, video, email verification and password reset (these need an email sender), and cleanup of images from soft-deleted listings.
 
-### Services
-
-Responsible for:
-
-* Business rules
-* Authorization
-* Ownership checks
-* Transactions
-* Database operations
-
-Services should not depend on Fastify request/response objects.
-
-No repository or additional use-case layer is required for V1.
-
----
-
-# 10. Database Integrity
-
-PostgreSQL is responsible for important data integrity rules.
-
-### Foreign Keys
-
-```text
-properties.tenant_id → user.id
-uploads.property_id → properties.id
-bookings.property_id → properties.id
-bookings.seeker_id → user.id
-```
-
-### Important Constraints
-
-* Unique user email
-* Unique Cloudinary public ID
-* One pending booking per Seeker/property
-* Foreign keys on all domain relationships
-* Indexed ownership and lookup fields
-
-### Booking Confirmation
-
-Confirmation must be transactional:
-
-```text
-Verify booking is PENDING
-        ↓
-Confirm booking
-        ↓
-Reject other pending requests
-        ↓
-Set property unavailable
-```
-
-If any step fails, the transaction rolls back.
-
----
-
-# 11. Security
-
-V1 security requirements:
-
-* Better Auth manages password hashing
-* Never log passwords
-* Use secure, HTTP-only session cookies
-* Use explicit CORS origins
-* Validate every request with Zod
-* Reject unexpected fields
-* Enforce authorization in services
-* Validate uploaded file type and size server-side
-* Limit uploads per property
-* Use Cloudinary signed uploads
-* Rate-limit authentication endpoints
-* Validate environment variables at startup
-* Never expose internal errors or stack traces
-* Never return session/account internals to clients
-
----
-
-# 12. MVP Scope
-
-### V1
-
-* Authentication
-* Tenant/Seeker/Admin roles
-* Property CRUD
-* Property search and filters
-* Pagination and sorting
-* Cloudinary property images
-* Property availability
-* Booking requests
-* Tenant booking management
-* Admin user management
-* Admin property management
-* Admin booking viewing
-* Validation
-* Authorization
-* Centralized error handling
-
-### Deferred
-
-The following are intentionally **not part of V1**:
-
-* M-Pesa/payments
-* Deposits/escrow
-* Short-stay/date-range reservations
-* Elasticsearch
-* Advanced geo/map search
-* Normalized amenities system
-* Mandatory pre-publication review
-* Reviews and ratings
-* Messaging/chat
-* Advanced notifications
-* Favorites/saved searches
-* Video tours
-* Advanced image management
-
----
-
-# 13. Recommended Implementation Order
-
-```text
-1. Project initialization
-2. Environment configuration
-3. PostgreSQL connection
-4. Drizzle configuration
-5. Database schema
-6. Better Auth setup
-7. Database migrations
-8. Fastify application setup
-9. Error handling + response helpers
-10. Authentication integration
-11. Authorization
-12. Users module
-13. Properties module
-14. Uploads + Cloudinary
-15. Bookings + transactions
-16. Admin module
-17. Tests
-18. Deployment
-```
-
-The guiding principle for KejaLink is **simple architecture with strong database integrity and clear business rules**. The V1 should avoid infrastructure and features that are not yet required.
+**Forward notes:**
+- Payments need an idempotency-key table and webhook IP allow-listing; `TRUST_PROXY` is already correct for that.
+- Notifications should be written in the same transaction as the state change (outbox pattern).
+- Scaling past one instance needs a shared rate-limit store.

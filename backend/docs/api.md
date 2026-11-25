@@ -1,402 +1,272 @@
-# KejaLink — API Specification
+# KejaLink: API Reference
 
-**Base URL:** `/api`
-**Format:** JSON
-**Authentication:** Better Auth session cookie for authenticated first-party requests.
+**Base URL:** `/api` · **Format:** JSON (uploads use `multipart/form-data`) · **Auth:** Better Auth session cookie (`better-auth.session_token`, `__Secure-` prefixed in production).
 
-The API is internally organized as **Routes → Controllers → Services**. This document defines the public API contract only.
+Everything outside `/api/auth/*` uses the app envelope below. `/api/auth/*` is Better Auth's own API, with its own response and error format (see §1).
+
+## Conventions
+
+**Success**
+
+```json
+{ "success": true, "data": { "id": "…" } }
+```
+
+**Paginated** (every list endpoint): `?page=1&limit=20` (limit 1–50, default 20)
+
+```json
+{ "success": true, "data": [], "meta": { "page": 1, "limit": 20, "total": 137, "totalPages": 7 } }
+```
+
+**Error**
+
+```json
+{ "success": false, "error": { "code": "PROPERTY_NOT_AVAILABLE", "message": "…", "details": null } }
+```
+
+`details` is an array of `{ field, message }` for `VALIDATION_ERROR`, and `null` otherwise.
+
+**Request rules**
+- Bodies are strict: unknown keys return 422. Query strings ignore unknown parameters, but validate the known ones.
+- Route ids are UUIDs (admin user ids are Better Auth string ids). A malformed id returns 422, never a database error.
+- Prices are JSON numbers (KES, up to 2 decimals). Timestamps are ISO-8601 UTC. `preferredMoveInDate` is `YYYY-MM-DD`.
+- **CSRF:** a POST, PATCH or DELETE that carries a session cookie must send an `Origin` header listed in `FRONTEND_URL`. Otherwise it gets 403 `INVALID_ORIGIN` (Better Auth applies the same rule to `/api/auth/*`).
+- Auth guards run before body validation, so an unauthenticated request to a protected route gets 401 even if its body is invalid.
+
+### Status codes
+
+| Status | Meaning |
+|---|---|
+| 200 / 201 | OK / created |
+| 400 | Malformed request (e.g. invalid JSON) |
+| 401 | `UNAUTHORIZED`: no valid session |
+| 403 | `FORBIDDEN` (wrong role), `ACCOUNT_SUSPENDED`, `INVALID_ORIGIN`, `NOT_PROPERTY_OWNER`, `OWN_PROPERTY`, `CANNOT_MODIFY_ADMIN` |
+| 404 | `NOT_FOUND` (route), `PROPERTY_NOT_FOUND`, `BOOKING_NOT_FOUND`, `UPLOAD_NOT_FOUND`, `USER_NOT_FOUND` |
+| 409 | `CONFLICT`, `DUPLICATE_BOOKING`, `PROPERTY_NOT_AVAILABLE`, `BOOKING_NOT_PENDING`, `BOOKING_NOT_CANCELLABLE`, `PROPERTY_HAS_CONFIRMED_BOOKING`, `UPLOAD_LIMIT_REACHED`, `PROPERTY_NOT_REJECTED` |
+| 413 | `PAYLOAD_TOO_LARGE` (image over 5 MB, more than one file) |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` (wrong body type, or an image that is not JPEG/PNG/WebP or does not match its declared type) |
+| 422 | `VALIDATION_ERROR` (schema validation, with field `details`) |
+| 429 | `TOO_MANY_REQUESTS` |
+| 500 | `INTERNAL_SERVER_ERROR` (generic message, never a stack trace) |
+| 502 | `UPLOAD_FAILED` (image host error) |
+| 503 | `DATABASE_UNAVAILABLE` (readiness), `SERVICE_UNAVAILABLE` (query timed out) |
+
+**Rate limits:** 100 requests/min per client IP globally, and `AUTH_RATE_LIMIT_MAX` (default 10) per minute for `/api/auth/*`, including sign-in and sign-up.
 
 ---
 
-## 1. Authentication
+## 1. Authentication (Better Auth, native)
 
-Better Auth handles password hashing and session management.
+These endpoints return **Better Auth's native format**, not the app envelope: for example `{ "token", "user" }` on success and `{ "message", "code" }` on error, with Better Auth's status codes (validation errors are 400, a duplicate email is 422). Use the Better Auth client on the frontend.
 
-| Method | Endpoint             | Description                    |
-| ------ | -------------------- | ------------------------------ |
-| `POST` | `/api/auth/register` | Register as Tenant or Seeker   |
-| `POST` | `/api/auth/login`    | Login                          |
-| `POST` | `/api/auth/logout`   | Logout                         |
-| `GET`  | `/api/auth/me`       | Get current authenticated user |
+| Method | Endpoint | Notes |
+|---|---|---|
+| `POST` | `/api/auth/sign-up/email` | `{ name, email, password, role? }`. `role` is `TENANT` or `SEEKER` (default `SEEKER`); `ADMIN` or any other value returns 400. `name` is trimmed, 1–100 characters. Password at least 8 characters. Signs the user in. |
+| `POST` | `/api/auth/sign-in/email` | `{ email, password, rememberMe? }`. Suspended or banned accounts get 403. |
+| `POST` | `/api/auth/sign-out` | |
+| `GET` / `HEAD` | `/api/auth/get-session` | The current session and user (including `role` and `status`), or `null`. |
+| `POST` | `/api/auth/change-password` | `{ currentPassword, newPassword, revokeOtherSessions? }` |
+| `GET` | `/api/auth/list-sessions` | |
+| `POST` | `/api/auth/revoke-session`, `/revoke-sessions`, `/revoke-other-sessions` | |
+| `POST` | `/api/auth/verify-password` | |
+| `GET` | `/api/auth/list-accounts`, `/account-info` | |
+| `GET` | `/api/auth/ok`, `/api/auth/error` | Better Auth health and error page. |
 
-### Register
+**Disabled** (404): `update-user` (use `PATCH /api/users/me`), `change-email`, `delete-user`, `update-session`, `sign-in/social`, `link-social`, `unlink-account`, `get-access-token`, `refresh-token`, `send-verification-email`, `verify-email`, `request-password-reset`, `reset-password`. There are no social providers and no email sender in V1.
+
+Example registration:
 
 ```json
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "phone": "0712345678",
-  "password": "password",
-  "accountType": "TENANT"
-}
+POST /api/auth/sign-up/email
+{ "name": "Wanjiru Kamau", "email": "wanjiru@example.com", "password": "a-strong-password", "role": "TENANT" }
 ```
 
-`accountType`: `TENANT | SEEKER`
-
-Admin accounts are created or promoted internally and are **not available during public registration**.
+A client-supplied `status` is ignored, and every new account is `ACTIVE`. Admin accounts are created with `npm run seed:admin`.
 
 ---
 
 ## 2. Users
 
-| Method  | Endpoint        | Description        |
-| ------- | --------------- | ------------------ |
-| `GET`   | `/api/users/me` | Get own profile    |
-| `PATCH` | `/api/users/me` | Update own profile |
+| Method | Endpoint | Access |
+|---|---|---|
+| `GET` | `/api/users/me` | Signed in (ACTIVE) |
+| `PATCH` | `/api/users/me` | Signed in (ACTIVE) |
 
-Allowed update fields:
+Response fields: `id, name, email, emailVerified, image, role, status, createdAt, updatedAt`.
 
-```json
-{
-  "name": "John Doe",
-  "phone": "0712345678",
-  "image": "https://..."
-}
-```
-
-`role` and `status` cannot be changed through this endpoint.
+PATCH body (strict, all optional): `{ "name": "1-100 chars", "image": "https://… | null" }`. The image must be an `https:` URL. `role`, `status`, `email` and any other key return 422. An empty body `{}` returns the current profile.
 
 ---
 
 ## 3. Properties
 
-| Method   | Endpoint              | Access             | Description                 |
-| -------- | --------------------- | ------------------ | --------------------------- |
-| `GET`    | `/api/properties`     | Public             | Browse published properties |
-| `GET`    | `/api/properties/me`  | Tenant             | Get own properties          |
-| `GET`    | `/api/properties/:id` | Public/Owner/Admin | Get property details        |
-| `POST`   | `/api/properties`     | Tenant             | Create property             |
-| `PATCH`  | `/api/properties/:id` | Tenant/Admin       | Update property             |
-| `DELETE` | `/api/properties/:id` | Tenant/Admin       | Archive property            |
+| Method | Endpoint | Access |
+|---|---|---|
+| `GET` | `/api/properties` | Public |
+| `GET` | `/api/properties/me` | TENANT |
+| `GET` | `/api/properties/:id` | Public / owner / admin |
+| `POST` | `/api/properties` | TENANT |
+| `PATCH` | `/api/properties/:id` | TENANT (owner) |
+| `DELETE` | `/api/properties/:id` | TENANT (owner) |
 
-### Public Property Search
+`/me` is registered before `/:id`.
 
-```http
-GET /api/properties
-```
+### `GET /api/properties`: public discovery
 
-Supported filters:
+Returns only listings that are `PUBLISHED`, not deleted, and whose tenant is `ACTIVE`.
 
-```text
-county
-area
-propertyType
-minPrice
-maxPrice
-bedrooms
-page
-limit
-sort
-```
+| Query | Meaning |
+|---|---|
+| `q` | Case-insensitive search across title, description, area and county. `%`, `_` and `\` match literally. |
+| `county` | Exact match, case-insensitive. |
+| `area` | Partial match, case-insensitive. |
+| `propertyType` | `HOUSE`, `APARTMENT`, `ROOM`, `BEDSITTER`, `STUDIO` or `OTHER`. |
+| `minPrice`, `maxPrice` | Inclusive. `minPrice > maxPrice` returns 422. |
+| `bedrooms` | Exact. |
+| `available` | `true` or `false`. |
+| `sort` | `newest` (default), `price_asc` or `price_desc`; the id is always the tiebreaker, so ordering is stable. |
+| `page`, `limit` | Pagination. |
 
-Defaults:
+Item fields: `id, tenantId, title, propertyType, priceAmount, priceCurrency, bedrooms, bathrooms, county, area, isAvailable, primaryImageUrl, createdAt`.
 
-```text
-page = 1
-limit = 20
-maximum limit = 50
-sort = newest
-```
+### `GET /api/properties/me`
 
-Supported sorting:
+The tenant's own non-deleted listings in any status. Items have the discovery fields plus `status, rejectionReason, updatedAt`. Paginated.
 
-```text
-newest
-price_asc
-price_desc
-```
+### `GET /api/properties/:id`
 
-Public search returns **`PUBLISHED` properties only**.
+- **Public:** if `PUBLISHED`, not deleted and the tenant is ACTIVE.
+- **Owner:** also sees `REJECTED` listings.
+- **Admin:** sees everything, including deleted listings.
+- **Everyone else:** 404 `PROPERTY_NOT_FOUND`.
 
-`status` and availability are not exposed as public filters.
+Detail fields: `id, tenantId, title, description, propertyType, priceAmount, priceCurrency, bedrooms, bathrooms, county, area, addressText, amenities, status, isAvailable, createdAt, updatedAt, tenant { id, name, image }, uploads [{ id, url, isPrimary, displayOrder, createdAt }]` (ordered by `displayOrder`). `rejectionReason` is included for the owner and admins only; `deletedAt` for admins only.
 
-Tenants use:
+### `POST /api/properties`
 
-```http
-GET /api/properties/me
-```
-to view their properties regardless of status.
-
-### Route Ordering
-
-Register:
-
-```http
-GET /api/properties/me
-```
-
-**before**
-
-```http
-GET /api/properties/:id
-```
-
-Otherwise Fastify may interpret `me` as an `id`.
-
-The same applies to:
-
-```http
-GET /api/bookings/me
-GET /api/bookings/:id
-```
-
----
-
-## 4. Property Uploads
-
-| Method   | Endpoint                                | Access         |
-| -------- | --------------------------------------- | -------------- |
-| `POST`   | `/api/properties/:id/uploads`           | Property owner |
-| `PATCH`  | `/api/properties/:id/uploads/:uploadId` | Property owner |
-| `DELETE` | `/api/properties/:id/uploads/:uploadId` | Property owner |
-
-Upload requirements:
-
-* Maximum **10 images per property**
-* Maximum **5 MB per image**
-* Allowed types:
-
-  * JPEG
-  * PNG
-  * WebP
-* Cloudinary is used for image storage.
-* Uploads may use multipart or signed-upload flow.
-
-Upload metadata:
+Strict body. The listing is created `PUBLISHED` and returned with 201.
 
 ```json
 {
-  "isPrimary": true,
-  "displayOrder": 1
+  "title": "3-150 chars",
+  "description": "10-5000 chars",
+  "propertyType": "APARTMENT",
+  "priceAmount": 45000,
+  "bedrooms": 2,
+  "bathrooms": 1,
+  "county": "Nairobi",
+  "area": "Kilimani",
+  "addressText": "optional, ≤255",
+  "amenities": ["parking", "water"]
 }
 ```
 
+- `priceAmount` must be greater than 0 and at most 100,000,000.
+- `bedrooms` and `bathrooms` are optional integers from 0 to 50.
+- `amenities` is optional: at most 30 items of 1–50 characters.
+- `status`, `tenantId` and `rejectionReason` are rejected with 422.
+
+### `PATCH /api/properties/:id`
+
+All create fields are optional (`bedrooms`, `bathrooms` and `addressText` accept `null`), plus `isAvailable` (boolean). The body is strict, and an empty body is a no-op.
+
+- `status` never changes here, so a `REJECTED` listing stays rejected but editable.
+- Non-owner: 403 `NOT_PROPERTY_OWNER`. Deleted: 404.
+- `isAvailable: true` while a CONFIRMED booking exists returns 409 `PROPERTY_HAS_CONFIRMED_BOOKING`.
+
+### `DELETE /api/properties/:id`
+
+Soft delete; returns `{ id, deletedAt }`. A CONFIRMED booking blocks it with 409 `PROPERTY_HAS_CONFIRMED_BOOKING`. Otherwise every PENDING request is rejected with the reason *"This listing was removed by the owner"*.
+
 ---
 
-## 5. Bookings
+## 4. Property images (uploads)
 
-| Method  | Endpoint                    | Access              | Description            |
-| ------- | --------------------------- | ------------------- | ---------------------- |
-| `POST`  | `/api/bookings`             | Seeker              | Create booking request |
-| `GET`   | `/api/bookings/me`          | Seeker              | Own booking requests   |
-| `GET`   | `/api/bookings/received`    | Tenant              | Incoming requests      |
-| `GET`   | `/api/bookings/:id`         | Seeker/Tenant/Admin | View booking           |
-| `PATCH` | `/api/bookings/:id/cancel`  | Seeker              | Cancel booking         |
-| `PATCH` | `/api/bookings/:id/confirm` | Tenant              | Confirm request        |
-| `PATCH` | `/api/bookings/:id/reject`  | Tenant              | Reject request         |
+| Method | Endpoint | Access |
+|---|---|---|
+| `POST` | `/api/properties/:id/uploads` | TENANT (owner) |
+| `PATCH` | `/api/properties/:id/uploads/:uploadId` | TENANT (owner) |
+| `DELETE` | `/api/properties/:id/uploads/:uploadId` | TENANT (owner) |
 
-### Create Booking
+**POST** takes `multipart/form-data` with exactly one file in the field **`file`**: JPEG, PNG or WebP, at most **5 MB**, and at most **10 images per property**. It returns 201 `{ id, url, isPrimary, displayOrder, createdAt }`; the Cloudinary public id is never exposed. The first image becomes primary.
+
+| Problem | Response |
+|---|---|
+| Not the owner | 403 |
+| Unknown or deleted property | 404 |
+| Already 10 images | 409 `UPLOAD_LIMIT_REACHED` |
+| Wrong field name or no file | 422 |
+| Not JPEG/PNG/WebP, or the content does not match the declared type | 415 |
+| File over 5 MB | 413 |
+| Image host failure | 502 `UPLOAD_FAILED` |
+
+**PATCH** body (strict): `{ "isPrimary": true, "displayOrder": 0-1000 }`, both optional. Setting `isPrimary` clears the previous primary image. An upload that belongs to another property returns 404 `UPLOAD_NOT_FOUND`.
+
+**DELETE** removes the image. If it was the primary, the image with the lowest `displayOrder` becomes primary.
+
+Images of soft-deleted listings are retained (see DECISIONS D-13).
+
+---
+
+## 5. Bookings (rent requests)
+
+| Method | Endpoint | Access |
+|---|---|---|
+| `POST` | `/api/bookings` | SEEKER |
+| `GET` | `/api/bookings/me` | SEEKER |
+| `GET` | `/api/bookings/received` | TENANT |
+| `GET` | `/api/bookings/:id` | Seeker, owning tenant, or admin |
+| `PATCH` | `/api/bookings/:id/confirm` | TENANT (owner) |
+| `PATCH` | `/api/bookings/:id/reject` | TENANT (owner) |
+| `PATCH` | `/api/bookings/:id/cancel` | SEEKER (owner) |
+
+**Create** (strict body; returns 201):
 
 ```json
-{
-  "propertyId": "property-id",
-  "preferredMoveInDate": "2026-10-01",
-  "message": "I would like to move in next month."
-}
+{ "propertyId": "uuid", "preferredMoveInDate": "2026-12-01", "message": "1-1000 chars" }
 ```
-### Booking Rules
 
-* Only Seekers can create booking requests.
-* A Seeker can only access their own bookings.
-* A Tenant can only manage bookings for their own properties.
-* Cancellation is allowed while `PENDING` or `CONFIRMED`.
-* Only `PENDING` bookings can be confirmed or rejected.
-* Duplicate/conflicting booking requests return `409 Conflict`.
+| Problem | Response |
+|---|---|
+| `preferredMoveInDate` before today's date in Africa/Nairobi | 422 |
+| Property unknown, deleted, rejected, or its tenant suspended | 404 |
+| Requesting your own property | 403 `OWN_PROPERTY` |
+| Property not available | 409 `PROPERTY_NOT_AVAILABLE` |
+| An existing PENDING request for the same property | 409 `DUPLICATE_BOOKING` |
+
+**Lists:** `/me` and `/received` take optional `?status=PENDING|CONFIRMED|REJECTED|CANCELLED` and are paginated, newest first.
+
+**Booking fields:** `id, status, preferredMoveInDate, message, decisionReason, decidedAt, createdAt, updatedAt, property { id, title, county, area, priceAmount, priceCurrency, isAvailable, primaryImageUrl }, seeker { id, name, email, image }, tenant { id, name, image, email? }`. The tenant's `email` is shown to the seeker **only when the booking is CONFIRMED**; the tenant and admins always see it.
+
+**Rules**
+- Anyone who is not a participant gets 404 `BOOKING_NOT_FOUND`.
+- **Confirm:** PENDING only (otherwise 409 `BOOKING_NOT_PENDING`), and the property must be published, live and available (otherwise 409 `PROPERTY_NOT_AVAILABLE`). In one transaction it confirms the booking, rejects the other PENDING requests (*"Another request for this property was accepted"*) and sets `isAvailable=false`.
+- **Reject:** optional body `{ "reason": "1-500 chars" }`; a missing or `null` body is accepted. PENDING only.
+- **Cancel:** PENDING or CONFIRMED only (otherwise 409 `BOOKING_NOT_CANCELLABLE`). Cancelling a CONFIRMED booking sets `isAvailable=true`. Tenants cannot cancel.
+- Booking records are never hard-deleted. A seeker may request again after a rejection or cancellation.
 
 ---
+
 ## 6. Admin
 
-### Users
+All routes are under `/api/admin` and require `ADMIN`; other roles get 403. Every mutation writes a structured audit log line (`audit: true, adminId, action, targetId, reason`).
 
-| Method  | Endpoint               | Description        |
-| ------- | ---------------------- | ------------------ |
-| `GET`   | `/api/admin/users`     | List users         |
-| `GET`   | `/api/admin/users/:id` | View user          |
-| `PATCH` | `/api/admin/users/:id` | Change user status |
-
-Supported statuses:
-
-```text
-ACTIVE
-SUSPENDED
-BANNED
-```
-
-This endpoint changes **status only**.
-
-Role changes require a separate, more restricted administrative action.
-
-### Properties
-
-| Method   | Endpoint                              | Description            |
-| -------- | ------------------------------------- | ---------------------- |
-| `GET`    | `/api/admin/properties`               | List/manage properties |
-| `PATCH`  | `/api/admin/properties/:id/unpublish` | Unpublish property     |
-| `PATCH`  | `/api/admin/properties/:id/reject`    | Reject property        |
-| `DELETE` | `/api/admin/properties/:id`           | Archive property       |
-
-Reject requires:
-
-```json
-{
-  "reason": "Property information violates platform requirements."
-}
-```
-
-### Bookings
-
-```http
-GET /api/admin/bookings
-```
-
-Admin booking access is **view-only** and supports filtering by:
-
-* status
-* property
-* user
+| Method | Endpoint | Notes |
+|---|---|---|
+| `GET` | `/api/admin/users` | Filters: `role`, `status`, and `q` (name/email, case-insensitive, wildcards escaped). Paginated. |
+| `GET` | `/api/admin/users/:id` | |
+| `PATCH` | `/api/admin/users/:id` | Body `{ "status": "ACTIVE" \| "SUSPENDED" \| "BANNED" }` (strict). SUSPENDED or BANNED **deletes every session** of the user in the same transaction. Returns `{ user, sessionsRevoked }`. Targeting yourself or another admin returns 403 `CANNOT_MODIFY_ADMIN`. Roles cannot be changed through the API. |
+| `GET` | `/api/admin/properties` | Filters: `status`, `tenantId`, `includeDeleted` (default `false`). Items include `status, rejectionReason, deletedAt, tenant { id, name, email, status }`. |
+| `PATCH` | `/api/admin/properties/:id/reject` | Body `{ "reason": "3-500 chars" }` (required). Sets `REJECTED` and stores the reason; PENDING bookings are rejected (*"This listing was removed by an administrator"*). Returns `{ property, bookingsRejected }`. |
+| `PATCH` | `/api/admin/properties/:id/restore` | Sets `PUBLISHED` and clears the reason. 409 `PROPERTY_NOT_REJECTED` if the listing is not rejected. |
+| `DELETE` | `/api/admin/properties/:id` | Soft delete. PENDING bookings are REJECTED and CONFIRMED bookings CANCELLED, both with the reason above. Returns `{ id, deletedAt, bookingsRejected, bookingsCancelled }`. |
+| `GET` | `/api/admin/bookings` | Read-only. Filters: `status`, `propertyId`, `seekerId`. Admins cannot confirm or reject on a tenant's behalf. |
 
 ---
 
-## 7. Property Publishing Model
+## 7. Health
 
-Properties are published **immediately after submission**.
-
-There is currently **no mandatory admin approval queue**.
-```text
-Property Created
-      ↓
-  PUBLISHED
-      ↓
- ┌────┴─────┐
- ↓          ↓
-Unpublish  Archive
-```
-
-Admin can remove a property from public visibility using:
-
-```http
-PATCH /api/admin/properties/:id/unpublish
-PATCH /api/admin/properties/:id/reject
-```
-
-If a mandatory pre-publication review process is introduced later, an approval endpoint can be added at that time.
-
----
-
-# 8. Response Format
-
-## Single Resource
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "123",
-    "title": "Modern Apartment"
-  }
-}
-```
-
-## Paginated Response
-
-```json
-{
-  "success": true,
-  "data": [],
-  "meta": {
-    "page": 1,
-    "limit": 20,
-    "total": 137,
-    "totalPages": 7
-  }
-}
-```
-
-## Error Response
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "PROPERTY_NOT_AVAILABLE",
-    "message": "This property is not currently accepting booking requests.",
-    "details": null
-  }
-}
-```
-
-### Error Codes
-
-Common codes include:
-
-```text
-VALIDATION_ERROR
-NOT_FOUND
-UNAUTHORIZED
-FORBIDDEN
-DUPLICATE_BOOKING
-PROPERTY_NOT_AVAILABLE
-CONFLICT
-INTERNAL_ERROR
-```
-
-`details` contains field-level Zod validation errors when:
-
-```text
-code = VALIDATION_ERROR
-```
-
-Otherwise:
-
-```json
-"details": null
-```
-
----
-
-# 9. HTTP Status Codes
-
-| Status | Usage                                    |
-| ------ | ---------------------------------------- |
-| `200`  | Successful read/update                   |
-| `201`  | Resource created                         |
-| `400`  | Malformed request / invalid JSON         |
-| `401`  | Missing or invalid authentication        |
-| `403`  | Authenticated but not authorized         |
-| `404`  | Resource not found                       |
-| `409`  | Resource/state conflict                  |
-| `422`  | Valid request structure but invalid data |
-| `429`  | Rate limit exceeded                      |
-| `500`  | Unexpected server error                  |
-
-### 400 vs 422
-
-Use **400** for structurally malformed requests, such as invalid JSON.
-
-Use **422** for valid JSON that fails application/schema validation, such as:
-
-* Invalid email
-* Missing required field
-* Invalid property type
-* Invalid price
-
-This allows the frontend to reliably handle field-level validation errors.
-
----
-
-# 10. API Design Principles
-
-KejaLink's V1 API follows these principles:
-
-1. **Better Auth handles authentication and sessions.**
-2. **Backend authorization is always enforced.**
-3. **Tenants can only manage their own properties.**
-4. **Seekers can only manage their own bookings.**
-5. **Admins manage platform resources.**
-6. **Public property search returns published listings only.**
-7. **List endpoints are paginated.**
-8. **Property search supports basic PostgreSQL filtering in V1.**
-9. **Errors use stable machine-readable codes.**
-10. **Properties are soft-deleted/archived rather than physically removed.**
-11. **Cloudinary handles property image storage.**
-12. **The API remains simple enough to extend later without introducing unnecessary infrastructure.**
+| Method | Endpoint | Meaning |
+|---|---|---|
+| `GET` | `/api/health` | Liveness: the process is up. Never touches the database. |
+| `GET` | `/api/health/ready` | Readiness: `select 1` with a 2 s timeout. Returns 200 `{ status, database: "ok" }`, or 503 `DATABASE_UNAVAILABLE`. |

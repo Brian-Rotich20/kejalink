@@ -8,6 +8,8 @@ Labels: **VERIFIED** means reproduced live or proven from code and tool output. 
 
 ---
 
+> **Status update (2026-11-25, branch `feat/complete-backend`):** every finding below is now marked in the **Status** column of the findings table. All are Fixed except where noted. See `docs/DECISIONS.md` for decisions taken while fixing them.
+
 ## 1. Executive summary
 
 The brief describes a backend that does not exist in this repository. There is no properties, uploads, bookings or admin code. `src/modules/properties/property.routes.ts` is empty. There is no Cloudinary or multipart dependency, no auth plugin with role guards, and no `src/lib/{validation,db,image}`. What exists is a Fastify bootstrap, a Better Auth integration, a full DB schema and migrations for all tables, an error handler and response helpers, and a users module. That users module does not compile and is not mounted. The foundations are a reasonable shape: central error envelope, partial unique indexes, CHECK constraints, a `buildApp()` factory, origin checks and secure cookies in production.
@@ -27,33 +29,33 @@ The auth layer has one critical flaw and several high-risk gaps that every remai
 
 ## 2. Findings table
 
-| ID | Severity | Area | Status | Location | Summary |
-|----|----------|------|--------|----------|---------|
-| C1 | Critical | AuthZ | VERIFIED | `src/config/auth/better-auth.ts:38-43, 54-69` | `role` has `input: true` and is only validated on create, so `/api/auth/update-user` sets any role, including ADMIN |
-| H1 | High | Scope | VERIFIED | `src/modules/properties/property.routes.ts` (empty) | Properties, uploads, bookings, admin, auth guards, Cloudinary and multipart described as built do not exist |
-| H2 | High | Build | VERIFIED | `src/modules/users/user.controller.ts:18,28`; `src/app.ts:34` | Type-check and build fail; users routes not registered; build emits anyway |
-| H3 | High | DB integrity | VERIFIED | `src/db/schema/auth.ts:15-16`; `migrations/0001_boring_shiver_man.sql:14-18` | `user.role`/`user.status` are free `text`, `status` nullable; enums orphaned |
-| H4 | High | Session | VERIFIED | `src/middleware/auth.middleware.ts:4-34` | Status never checked after login; suspended users keep acting |
-| H5 | High | Rate limit | VERIFIED | `src/app.ts:17` | `trustProxy: true` trusts client `X-Forwarded-For`; both limiters bypassed |
-| H6 | High | Dependencies | VERIFIED | `package.json` | `npm audit`: 1 critical (better-auth), 1 high (zod), 6 moderate, 2 low; all fixable within ranges except drizzle-kit's esbuild |
-| M1 | Medium | Validation | VERIFIED | `src/config/auth/better-auth.ts:23-52` | Better Auth endpoints bypass app Zod rules: 500 KB `name`, `javascript:` image accepted |
-| M2 | Medium | Reliability | VERIFIED | `src/db/client.ts:7-11`; `src/app.ts:32` | No query/statement timeout (requests hung >60 s with DB down); health check is shallow |
-| M3 | Medium | DB/time | VERIFIED | `migrations/0001…sql:1-22` | Auth timestamps lost time zone; 3 h shift when Node runs in Africa/Nairobi |
-| M4 | Medium | Perf/AuthN | VERIFIED | `src/app.ts:23` | Session lookup (3 queries) on every cookie request incl. health, 404 and `/api/auth/*`; runs as `preHandler`, not `onRequest` |
-| M5 | Medium | Logging | VERIFIED (email) / SUSPECTED (token) | Better Auth default logger | DB errors print query params (user email) as raw multi-line console output, outside pino redaction |
-| M6 | Medium | API contract | VERIFIED | `src/modules/auth/auth.routes.ts:22-28` | Auth responses bypass the `{success,error}` envelope; codes/statuses contradict `api.md` |
-| M7 | Medium | Rate limit | VERIFIED | `src/plugins/rate-limit.ts:4-13` | No auth-specific limit; 100 sign-ins/min/IP in dev; Better Auth limiter is in-memory and production-only |
-| M8 | Medium | Config | VERIFIED | `src/config/env.ts:4-15`; `.env.example`; `drizzle.config.ts:9` | `.env.example` lacks `FRONTEND_URL`; `BETTER_AUTH_URL` optional; drizzle config bypasses env validation |
-| M9 | Medium | DB integrity | VERIFIED (absent) | `src/db/schema/bookings.ts:40-48` | Nothing in the DB prevents two `CONFIRMED` bookings for one property |
-| L1 | Low | Ops/Sec | VERIFIED | `src/server.ts:9` | Dev server binds `0.0.0.0`; reachable on LAN interfaces |
-| L2 | Low | Deps | VERIFIED | `package.json` | `dns2`, `@fastify/cookie` unused; the "IPv4-first DNS fix" from the brief does not exist |
-| L3 | Low | Validation | VERIFIED | `src/modules/users/user.schema.ts:6` | `z.string().url()` accepts `javascript:` / `data:` URLs |
-| L4 | Low | Correctness | SUSPECTED | `src/modules/users/user.service.ts:17-18` | `PATCH /users/me` with `{}` passes `.strict()` then Drizzle throws "No values to set", giving a 500 |
-| L5 | Low | Data exposure | VERIFIED | `src/modules/users/user.service.ts:8`; `user.routes.ts` | Full rows returned with no response schema; future columns leak by default |
-| L6 | Low | Code quality | VERIFIED | `auth.types.ts`, `user.types.ts`, `enums.ts`; `auth.middleware.ts:18-19` | Role/status types defined 3×; unchecked casts (null status typed as valid) |
-| L7 | Low | Tooling | VERIFIED | `package.json`, `tsconfig.json` | No tests/lint/engines; no `noEmitOnError`; `auth:generate` overwrites `schema/auth.ts` (root cause of H3/M3); `db:push` available |
-| L8 | Low | Auth proxy | VERIFIED (code) | `src/modules/auth/auth.routes.ts:5-29` | Hand-rolled proxy: URL from `request.hostname` (X-Forwarded-Host in prod), forwards stale `content-length`, re-stringifies body |
-| I1 | Info | DB (forward) | VERIFIED | `schema/properties.ts`, `uploads.ts`, `bookings.ts` | Index/constraint gaps for queries not yet written (see §3 forward risk) |
+| ID | Severity | Area | Evidence | Location | Summary | Status |
+|----|----------|------|--------|----------|---------|--------|
+| C1 | Critical | AuthZ | VERIFIED | `src/config/auth/better-auth.ts:38-43, 54-69` | `role` has `input: true` and is only validated on create, so `/api/auth/update-user` sets any role, including ADMIN | Fixed (ac767f9, e8be598) |
+| H1 | High | Scope | VERIFIED | `src/modules/properties/property.routes.ts` (empty) | Properties, uploads, bookings, admin, auth guards, Cloudinary and multipart described as built do not exist | Fixed: modules built (d021725, 450f365, 6067620, 4d68efd) |
+| H2 | High | Build | VERIFIED | `src/modules/users/user.controller.ts:18,28`; `src/app.ts:34` | Type-check and build fail; users routes not registered; build emits anyway | Fixed (b3b3d5a) |
+| H3 | High | DB integrity | VERIFIED | `src/db/schema/auth.ts:15-16`; `migrations/0001_boring_shiver_man.sql:14-18` | `user.role`/`user.status` are free `text`, `status` nullable; enums orphaned | Fixed (2eb2b05) |
+| H4 | High | Session | VERIFIED | `src/middleware/auth.middleware.ts:4-34` | Status never checked after login; suspended users keep acting | Fixed (0a4aeb9; session deletion on suspend 4d68efd) |
+| H5 | High | Rate limit | VERIFIED | `src/app.ts:17` | `trustProxy: true` trusts client `X-Forwarded-For`; both limiters bypassed | Fixed (4fc2a42) |
+| H6 | High | Dependencies | VERIFIED | `package.json` | `npm audit`: 1 critical (better-auth), 1 high (zod), 6 moderate, 2 low; all fixable within ranges except drizzle-kit's esbuild | Fixed (d29d11f); dev-only drizzle-kit/esbuild moderate remains |
+| M1 | Medium | Validation | VERIFIED | `src/config/auth/better-auth.ts:23-52` | Better Auth endpoints bypass app Zod rules: 500 KB `name`, `javascript:` image accepted | Fixed (ac767f9) |
+| M2 | Medium | Reliability | VERIFIED | `src/db/client.ts:7-11`; `src/app.ts:32` | No query/statement timeout (requests hung >60 s with DB down); health check is shallow | Fixed (2494f13) |
+| M3 | Medium | DB/time | VERIFIED | `migrations/0001…sql:1-22` | Auth timestamps lost time zone; 3 h shift when Node runs in Africa/Nairobi | Fixed (2eb2b05) |
+| M4 | Medium | Perf/AuthN | VERIFIED | `src/app.ts:23` | Session lookup (3 queries) on every cookie request incl. health, 404 and `/api/auth/*`; runs as `preHandler`, not `onRequest` | Fixed (0a4aeb9) |
+| M5 | Medium | Logging | VERIFIED (email) / SUSPECTED (token) | Better Auth default logger | DB errors print query params (user email) as raw multi-line console output, outside pino redaction | Fixed (9c9924d) |
+| M6 | Medium | API contract | VERIFIED | `src/modules/auth/auth.routes.ts:22-28` | Auth responses bypass the `{success,error}` envelope; codes/statuses contradict `api.md` | Fixed by decision: native Better Auth format documented (docs/api.md, DECISIONS D-07) |
+| M7 | Medium | Rate limit | VERIFIED | `src/plugins/rate-limit.ts:4-13` | No auth-specific limit; 100 sign-ins/min/IP in dev; Better Auth limiter is in-memory and production-only | Fixed (4fc2a42) |
+| M8 | Medium | Config | VERIFIED | `src/config/env.ts:4-15`; `.env.example`; `drizzle.config.ts:9` | `.env.example` lacks `FRONTEND_URL`; `BETTER_AUTH_URL` optional; drizzle config bypasses env validation | Fixed (86eae5e) |
+| M9 | Medium | DB integrity | VERIFIED (absent) | `src/db/schema/bookings.ts:40-48` | Nothing in the DB prevents two `CONFIRMED` bookings for one property | Fixed (2eb2b05 index, 9c9924d 23505 mapping) |
+| L1 | Low | Ops/Sec | VERIFIED | `src/server.ts:9` | Dev server binds `0.0.0.0`; reachable on LAN interfaces | Fixed (86eae5e) |
+| L2 | Low | Deps | VERIFIED | `package.json` | `dns2`, `@fastify/cookie` unused; the "IPv4-first DNS fix" from the brief does not exist | Fixed (d29d11f) |
+| L3 | Low | Validation | VERIFIED | `src/modules/users/user.schema.ts:6` | `z.string().url()` accepts `javascript:` / `data:` URLs | Fixed (f0ece95) |
+| L4 | Low | Correctness | SUSPECTED | `src/modules/users/user.service.ts:17-18` | `PATCH /users/me` with `{}` passes `.strict()` then Drizzle throws "No values to set", giving a 500 | Fixed (0a4aeb9): empty body returns the current profile |
+| L5 | Low | Data exposure | VERIFIED | `src/modules/users/user.service.ts:8`; `user.routes.ts` | Full rows returned with no response schema; future columns leak by default | Fixed: explicit columns in every service (0a4aeb9 onwards) |
+| L6 | Low | Code quality | VERIFIED | `auth.types.ts`, `user.types.ts`, `enums.ts`; `auth.middleware.ts:18-19` | Role/status types defined 3×; unchecked casts (null status typed as valid) | Fixed (2eb2b05 single source, 0a4aeb9 runtime checks) |
+| L7 | Low | Tooling | VERIFIED | `package.json`, `tsconfig.json` | No tests/lint/engines; no `noEmitOnError`; `auth:generate` overwrites `schema/auth.ts` (root cause of H3/M3); `db:push` available | Fixed (b3b3d5a, d29d11f, a6000cd, c009d1c, c8a1497) |
+| L8 | Low | Auth proxy | VERIFIED (code) | `src/modules/auth/auth.routes.ts:5-29` | Hand-rolled proxy: URL from `request.hostname` (X-Forwarded-Host in prod), forwards stale `content-length`, re-stringifies body | Fixed (4fc2a42) |
+| I1 | Info | DB (forward) | VERIFIED | `schema/properties.ts`, `uploads.ts`, `bookings.ts` | Index/constraint gaps for queries not yet written (see §3 forward risk) | Fixed (0003 index d021725, M9 index, upload limit under lock 450f365); orphaned images of soft-deleted listings retained by design (DECISIONS D-13) |
 
 ---
 
