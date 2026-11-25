@@ -164,6 +164,31 @@ describe("origin checks (CSRF)", () => {
   });
 });
 
+describe("exposed Better Auth surface", () => {
+  it("disabled endpoints return 404", async () => {
+    const { DISABLED_AUTH_PATHS } = await import("../src/config/auth/better-auth");
+    const user = await createSeeker(t.app);
+    for (const path of DISABLED_AUTH_PATHS) {
+      const res = await api(t.app, "POST", `/api/auth${path}`, { cookie: user.cookie, body: {} });
+      expect(res.status, path).toBe(404);
+    }
+  });
+
+  it("kept endpoints still work: change-password, list-sessions, revoke-other-sessions", async () => {
+    const user = await createSeeker(t.app);
+    const change = await api(t.app, "POST", "/api/auth/change-password", {
+      cookie: user.cookie,
+      body: { currentPassword: "password123", newPassword: "password456", revokeOtherSessions: false },
+    });
+    expect(change.status).toBe(200);
+    expect((await signIn(t.app, user.email, "password456")).status).toBe(200);
+    const sessions = await api(t.app, "GET", "/api/auth/list-sessions", { cookie: user.cookie });
+    expect(sessions.status).toBe(200);
+    expect(sessions.body.length).toBeGreaterThanOrEqual(1);
+    expect((await api(t.app, "POST", "/api/auth/revoke-other-sessions", { cookie: user.cookie, body: {} })).status).toBe(200);
+  });
+});
+
 describe("session lifecycle", () => {
   it("sign-out invalidates the session", async () => {
     const user = await createSeeker(t.app);

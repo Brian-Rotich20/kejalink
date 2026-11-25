@@ -22,6 +22,22 @@ export const CLIENT_IP_HEADER = "x-kejalink-client-ip";
 
 const authRateRule = { window: 60, max: env.AUTH_RATE_LIMIT_MAX };
 
+export const DISABLED_AUTH_PATHS = [
+  "/update-user",
+  "/change-email",
+  "/delete-user",
+  "/update-session",
+  "/sign-in/social",
+  "/link-social",
+  "/unlink-account",
+  "/get-access-token",
+  "/refresh-token",
+  "/send-verification-email",
+  "/verify-email",
+  "/request-password-reset",
+  "/reset-password",
+] as const;
+
 const isPublicRole = (value: unknown): value is PublicRole =>
   typeof value === "string" && (PUBLIC_ROLES as readonly string[]).includes(value);
 
@@ -38,7 +54,10 @@ export const auth = betterAuth({
 
   // Profile edits go through PATCH /api/users/me only (strict, validated).
   // Better Auth's /update-user would accept the `role` additional field.
-  disabledPaths: ["/update-user"],
+  // The other entries are endpoints V1 cannot use (no social providers, no email
+  // sender) or must not expose (account deletion, email change, OAuth tokens).
+  // See docs/api.md for the endpoints that remain.
+  disabledPaths: [...DISABLED_AUTH_PATHS],
 
   // Route Better Auth's logs through pino. Only the message is kept: the extra
   // args (errors carrying SQL params such as emails or session tokens) are dropped.
