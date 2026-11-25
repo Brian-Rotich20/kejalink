@@ -19,7 +19,7 @@ export const offsetFor = ({ page, limit }: PaginationQuery): number => (page - 1
 export const booleanQuery = z.enum(["true", "false"]).transform((v) => v === "true");
 
 /** Escape LIKE/ILIKE wildcards so user input is matched literally (Postgres default escape char is `\`). */
-export const escapeLike = (input: string): string => input.replace(/[\%_]/g, (ch) => `\${ch}`);
+export const escapeLike = (input: string): string => input.replace(/[\\%_]/g, (ch) => "\\" + ch);
 
 /** `%input%` with wildcards escaped. */
 export const containsPattern = (input: string): string => `%${escapeLike(input)}%`;

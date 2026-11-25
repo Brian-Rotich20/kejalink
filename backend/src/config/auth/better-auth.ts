@@ -63,6 +63,9 @@ export const auth = betterAuth({
 
   advanced: {
     ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+    // Better Auth skips its Origin/CSRF check when it detects a test environment.
+    // Keep it on everywhere, so tests exercise the real behaviour.
+    disableOriginCheck: false,
   },
 
   emailAndPassword: {

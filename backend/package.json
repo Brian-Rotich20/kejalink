@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "auth:generate": "npx @better-auth/cli generate --config src/config/auth/better-auth.ts --output .drizzle/auth.generated.ts",
     "db:studio": "drizzle-kit studio",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -35,7 +36,8 @@
     "@types/node": "^26.6.3",
     "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
   },
   "engines": {
     "node": ">=22"

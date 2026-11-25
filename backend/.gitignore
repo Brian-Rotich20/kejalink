@@ -4,3 +4,4 @@ dist
 .drizzle
 .env.local
 
+.env.test
