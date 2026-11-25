@@ -12,7 +12,9 @@
     "auth:generate": "npx @better-auth/cli generate --config src/config/auth/better-auth.ts --output .drizzle/auth.generated.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed:admin": "tsx src/scripts/seed-admin.ts",
+    "seed:admin:prod": "node dist/scripts/seed-admin.js"
   },
   "keywords": [],
   "author": "",
