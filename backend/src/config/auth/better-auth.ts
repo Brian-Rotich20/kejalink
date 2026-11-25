@@ -5,7 +5,10 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db/client";
 import * as schema from "../../db/schema";
 import { PUBLIC_ROLES, type PublicRole } from "../../db/schema/enums";
+import { logger, sanitizeLogMessage } from "../../lib/logger";
 import { env } from "../env";
+
+const authLogger = logger.child({ component: "better-auth" });
 
 export const NAME_MAX_LENGTH = 100;
 
@@ -36,6 +39,16 @@ export const auth = betterAuth({
   // Profile edits go through PATCH /api/users/me only (strict, validated).
   // Better Auth's /update-user would accept the `role` additional field.
   disabledPaths: ["/update-user"],
+
+  // Route Better Auth's logs through pino. Only the message is kept: the extra
+  // args (errors carrying SQL params such as emails or session tokens) are dropped.
+  logger: {
+    level: env.NODE_ENV === "production" ? "warn" : "info",
+    disabled: env.NODE_ENV === "test",
+    log: (level, message) => {
+      authLogger[level](sanitizeLogMessage(message));
+    },
+  },
 
   // On in every environment (Better Auth defaults to production-only).
   rateLimit: {

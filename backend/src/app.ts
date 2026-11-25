@@ -1,6 +1,7 @@
 import Fastify, { type FastifyServerOptions } from "fastify";
 import { serializerCompiler, validatorCompiler, type ZodTypeProvider, } from "fastify-type-provider-zod";
 import { env } from "./config/env";
+import { logger } from "./lib/logger";
 import { registerCors } from "./plugins/cors";
 import { registerErrorHandler } from "./plugins/error-handler";
 import { registerRateLimit } from "./plugins/rate-limit";
@@ -12,10 +13,7 @@ import { userRoutes } from "./modules/users/user.routes";
 export async function buildApp(opts?: { rateLimitMax?: number }) {
   const options: FastifyServerOptions = {
     requestTimeout: 30_000,
-    logger: {
-      level: env.LOG_LEVEL ?? (env.NODE_ENV === "test" ? "silent" : "info"),
-      redact: ["req.headers.authorization", "req.headers.cookie", 'res.headers["set-cookie"]'],
-    },
+    loggerInstance: logger,
     // Trust exactly TRUST_PROXY hops, never `true` (trusting every hop lets clients spoof
     // X-Forwarded-For). Same semantics as a numeric trustProxy, which Fastify's types omit.
     trustProxy: env.TRUST_PROXY > 0 ? (_address: string, hop: number) => hop < env.TRUST_PROXY : false,

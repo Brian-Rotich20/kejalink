@@ -19,12 +19,15 @@
   "description": "KejaLink backend API",
   "dependencies": {
     "@fastify/cors": "^11.3.0",
+    "@fastify/multipart": "^9.4.0",
     "@fastify/rate-limit": "^11.2.0",
     "better-auth": "^1.7.5",
+    "cloudinary": "^2.11.0",
     "dotenv": "^18.0.3",
     "drizzle-orm": "^0.45.3",
     "fastify": "^5.12.5",
     "fastify-type-provider-zod": "^7.0.0",
+    "pino": "^10.4.0",
     "postgres": "^3.4.9",
     "zod": "^4.6.5"
   },

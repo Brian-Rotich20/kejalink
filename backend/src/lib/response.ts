@@ -1,4 +1,3 @@
-// 
 export interface PaginationMeta {
   page: number;
   limit: number;
@@ -21,19 +20,23 @@ export interface ErrorBody {
   };
 }
 
+export interface Page<T> {
+  items: T[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
 export const success = <T>(data: T): SuccessBody<T> => ({ success: true, data });
 
-export const paginated = <T>(
-  data: T[],
-  params: { page: number; limit: number; total: number },
-): SuccessBody<T[]> => ({
+export const paginated = <T>(page: Page<T>): SuccessBody<T[]> => ({
   success: true,
-  data,
+  data: page.items,
   meta: {
-    page: params.page,
-    limit: params.limit,
-    total: params.total,
-    totalPages: Math.max(1, Math.ceil(params.total / params.limit)),
+    page: page.page,
+    limit: page.limit,
+    total: page.total,
+    totalPages: Math.max(1, Math.ceil(page.total / page.limit)),
   },
 });
 
