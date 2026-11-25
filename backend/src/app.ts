@@ -6,8 +6,11 @@ import { registerCors } from "./plugins/cors";
 import { registerErrorHandler } from "./plugins/error-handler";
 import { registerRateLimit } from "./plugins/rate-limit";
 import { registerAuth } from "./plugins/auth";
+import { registerMultipart } from "./plugins/multipart";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { healthRoutes } from "./modules/health/health.routes";
+import { propertyRoutes } from "./modules/properties/property.routes";
+import { uploadRoutes } from "./modules/uploads/upload.routes";
 import { userRoutes } from "./modules/users/user.routes";
 
 export async function buildApp(opts?: { rateLimitMax?: number }) {
@@ -27,6 +30,7 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
   registerErrorHandler(app);
   await registerCors(app);
   await registerRateLimit(app, opts?.rateLimitMax === undefined ? {} : { max: opts.rateLimitMax });
+  await registerMultipart(app);
   registerAuth(app);
 
   // All API routes live under /api.
@@ -35,6 +39,8 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
       await api.register(healthRoutes, { prefix: "/health" });
       await api.register(authRoutes);
       await api.register(userRoutes, { prefix: "/users" });
+      await api.register(propertyRoutes, { prefix: "/properties" });
+      await api.register(uploadRoutes, { prefix: "/properties" });
     },
     { prefix: "/api" },
   );
