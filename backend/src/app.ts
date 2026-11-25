@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyServerOptions } from "fastify";
 import { serializerCompiler, validatorCompiler, type ZodTypeProvider, } from "fastify-type-provider-zod";
 import { env } from "./config/env";
 import { success } from "./lib/response";
@@ -10,13 +10,16 @@ import { authRoutes } from "./modules/auth/auth.routes";
 import { userRoutes } from "./modules/users/user.routes";
 
 export async function buildApp(opts?: { rateLimitMax?: number }) {
-  const app = Fastify({
+  const options: FastifyServerOptions = {
     logger: {
-      level: env.NODE_ENV === "test" ? "silent" : "info",
-      redact: ["req.headers.authorization", "req.headers.cookie"],
+      level: env.LOG_LEVEL ?? (env.NODE_ENV === "test" ? "silent" : "info"),
+      redact: ["req.headers.authorization", "req.headers.cookie", 'res.headers["set-cookie"]'],
     },
-    trustProxy: env.NODE_ENV === "production", // behind a reverse proxy in prod
-  }).withTypeProvider<ZodTypeProvider>();
+    // Trust exactly TRUST_PROXY hops, never `true` (trusting every hop lets clients spoof
+    // X-Forwarded-For). Same semantics as a numeric trustProxy, which Fastify's types omit.
+    trustProxy: env.TRUST_PROXY > 0 ? (_address: string, hop: number) => hop < env.TRUST_PROXY : false,
+  };
+  const app = Fastify(options).withTypeProvider<ZodTypeProvider>();
 
   // Zod is the single validation/serialization layer.
   app.setValidatorCompiler(validatorCompiler);

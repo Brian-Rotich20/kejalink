@@ -9,6 +9,16 @@ import { env } from "../env";
 
 export const NAME_MAX_LENGTH = 100;
 
+/**
+ * The auth bridge (modules/auth/auth.routes.ts) overwrites this header with
+ * Fastify's request.ip (which honours TRUST_PROXY). Better Auth reads the
+ * client IP from nowhere else, so X-Forwarded-For spoofing cannot reset its
+ * rate-limit buckets.
+ */
+export const CLIENT_IP_HEADER = "x-kejalink-client-ip";
+
+const authRateRule = { window: 60, max: env.AUTH_RATE_LIMIT_MAX };
+
 const isPublicRole = (value: unknown): value is PublicRole =>
   typeof value === "string" && (PUBLIC_ROLES as readonly string[]).includes(value);
 
@@ -26,6 +36,21 @@ export const auth = betterAuth({
   // Profile edits go through PATCH /api/users/me only (strict, validated).
   // Better Auth's /update-user would accept the `role` additional field.
   disabledPaths: ["/update-user"],
+
+  // On in every environment (Better Auth defaults to production-only).
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 100,
+    customRules: {
+      "/sign-in/email": authRateRule,
+      "/sign-up/email": authRateRule,
+    },
+  },
+
+  advanced: {
+    ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+  },
 
   emailAndPassword: {
     enabled: true,
