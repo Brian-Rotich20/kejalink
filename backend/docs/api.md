@@ -260,6 +260,7 @@ All routes are under `/api/admin` and require `ADMIN`; other roles get 403. Ever
 | `PATCH` | `/api/admin/properties/:id/reject` | Body `{ "reason": "3-500 chars" }` (required). Sets `REJECTED` and stores the reason; PENDING bookings are rejected (*"This listing was removed by an administrator"*). Returns `{ property, bookingsRejected }`. |
 | `PATCH` | `/api/admin/properties/:id/restore` | Sets `PUBLISHED` and clears the reason. 409 `PROPERTY_NOT_REJECTED` if the listing is not rejected. |
 | `DELETE` | `/api/admin/properties/:id` | Soft delete. PENDING bookings are REJECTED and CONFIRMED bookings CANCELLED, both with the reason above. Returns `{ id, deletedAt, bookingsRejected, bookingsCancelled }`. |
+| `GET` | `/api/admin/diagnostics/request` | Returns what the API sees for the caller behind the hosting proxy: `ip`, `ipChain`, `remoteAddress`, `protocol`, and the raw `x-forwarded-for`, `x-forwarded-proto`, `true-client-ip` and `cf-connecting-ip` headers. Use it to confirm `TRUST_PROXY`. |
 | `GET` | `/api/admin/bookings` | Read-only. Filters: `status`, `propertyId`, `seekerId`. Admins cannot confirm or reject on a tenant's behalf. |
 
 ---

@@ -37,4 +37,6 @@ export async function adminRoutes(fastify: FastifyInstance) {
   app.delete("/properties/:id", { schema: { tags, params: idParamSchema } }, controller.deleteProperty);
 
   app.get("/bookings", { schema: { tags, querystring: listAdminBookingsQuerySchema } }, controller.listBookings);
+
+  app.get("/diagnostics/request", { schema: { tags } }, controller.requestDiagnostics);
 }

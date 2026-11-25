@@ -37,6 +37,8 @@ npm run dev                   # http://localhost:5000/api/health
 | `FRONTEND_URL` | **yes** | Frontend origin(s), comma-separated. Used for CORS and auth trusted origins | `https://kejalink.co.ke,https://www.kejalink.co.ke` |
 | `TRUST_PROXY` | no | Number of reverse-proxy hops in front of the API. Default `1` in production, `0` otherwise | `1` |
 | `AUTH_RATE_LIMIT_MAX` | no | Max `/api/auth/*` requests per minute per IP. Default `10` | `10` |
+| `MIGRATE_ON_START` | no | `true` applies pending migrations at boot (hosts without a pre-deploy step) | `true` |
+| `CROSS_SITE_COOKIES` | no | `true` when the frontend is on another site (e.g. `*.vercel.app` + `*.onrender.com`): cookies become `SameSite=None; Secure; Partitioned`. Requires an https `BETTER_AUTH_URL` | `true` |
 | `CLOUDINARY_CLOUD_NAME` | **yes** | Cloudinary console → Settings → API Keys | `dxyz123` |
 | `CLOUDINARY_API_KEY` | **yes** | Same page | `123456789012345` |
 | `CLOUDINARY_API_SECRET` | **yes** | Same page (keep secret) | `AbC…` |
@@ -85,5 +87,60 @@ npm test
 5. **Reverse proxy:** terminate HTTPS and **append** the client IP to `X-Forwarded-For`. Set `TRUST_PROXY` to the number of proxies (usually `1`). The API port must be reachable **only through the proxy**, otherwise clients could spoof their IP and dodge rate limits.
 6. **Health checks:** liveness `GET /api/health`; readiness `GET /api/health/ready` (503 while the database is down).
 7. **Scaling:** rate limits are in memory. Use a single instance, or add a shared store before scaling out.
+
+## Deploying to Render (Docker)
+
+**1. Database.** Create a Render PostgreSQL instance in the same region as the web service. Use its **Internal Database URL** as `DATABASE_URL`.
+
+**2. Web service** (New → Web Service → this repository):
+
+| Setting | Value |
+|---|---|
+| Language / Runtime | Docker |
+| Branch | `main` |
+| Root Directory | `backend` |
+| Dockerfile Path | `./Dockerfile` (relative to the Root Directory, so it resolves to `backend/Dockerfile`) |
+| Docker Build Context Directory | `.` (the `backend` folder) |
+| Docker Command | leave empty (the image runs `node dist/server.js`) |
+| Health Check Path | `/api/health` |
+| Pre-Deploy Command (paid plans) | `node dist/scripts/migrate.js`, and then leave `MIGRATE_ON_START` unset |
+| Auto-Deploy | On commit (changes outside `backend/` do not trigger a deploy) |
+
+**3. Environment variables** (service → Environment):
+
+```text
+NODE_ENV=production
+DATABASE_URL=<Render Postgres Internal Database URL>
+BETTER_AUTH_SECRET=<openssl rand -hex 32, or the node one-liner above>
+BETTER_AUTH_URL=https://<your-service>.onrender.com       # or your custom API domain
+FRONTEND_URL=https://<your-frontend-origin>              # comma-separated if several
+TRUST_PROXY=1
+MIGRATE_ON_START=true                                    # free plan (no pre-deploy command)
+CROSS_SITE_COOKIES=true                                  # only if the frontend is on another site
+CLOUDINARY_CLOUD_NAME=…
+CLOUDINARY_API_KEY=…
+CLOUDINARY_API_SECRET=…
+```
+
+- Do **not** set `PORT` or `HOST`. Render injects `PORT`, and the app binds `0.0.0.0` in production.
+- `TZ=UTC` is already set in the image.
+
+**4. Cookies.** `onrender.com` is a public suffix, so a frontend anywhere else is a different site from the API.
+- **Recommended:** give both a shared custom domain (`kejalink.co.ke` for the frontend and `api.kejalink.co.ke` for the API, added under Settings → Custom Domains), set `BETTER_AUTH_URL=https://api.kejalink.co.ke`, and leave `CROSS_SITE_COOKIES` unset.
+- **Otherwise:** set `CROSS_SITE_COOKIES=true`. Browsers that block third-party cookies, such as Safari, may still drop them, which is why the shared domain is the reliable option.
+
+**5. First admin.** Run the seed once from your machine against the database's **External Database URL**. Variables set in the shell override `.env`. In PowerShell:
+
+```powershell
+$env:DATABASE_URL = "<External Database URL>"
+$env:ADMIN_EMAIL = "admin@kejalink.co.ke"; $env:ADMIN_PASSWORD = "<12+ characters>"; $env:ADMIN_NAME = "Site Admin"
+npm run seed:admin
+```
+
+On a paid plan you can instead run `node dist/scripts/seed-admin.js` in the Render Shell.
+
+**6. Verify.**
+- `https://<service>/api/health/ready` should return `{"database":"ok"}`.
+- Sign in as the admin and open `GET /api/admin/diagnostics/request`. `ip` must be your real public IP. If it shows a Render or Cloudflare address instead, increase `TRUST_PROXY` by one and check again; it must never be higher than the real number of proxies.
 
 CI (`.github/workflows/ci.yml` at the repository root) runs typecheck, build, migrate, a drift check, tests and `npm audit --omit=dev --audit-level=high` on Node 22 and 24.

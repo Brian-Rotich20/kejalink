@@ -82,6 +82,12 @@ export const auth = betterAuth({
 
   advanced: {
     ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+    // Frontend on another site (e.g. *.onrender.com and *.vercel.app are separate sites):
+    // browsers only send SameSite=None cookies cross-site. CSRF stays covered by the
+    // Origin checks (Better Auth + plugins/auth.ts).
+    ...(env.CROSS_SITE_COOKIES
+      ? { defaultCookieAttributes: { sameSite: "none" as const, secure: true, partitioned: true } }
+      : {}),
     // Better Auth skips its Origin/CSRF check when it detects a test environment.
     // Keep it on everywhere, so tests exercise the real behaviour.
     disableOriginCheck: false,

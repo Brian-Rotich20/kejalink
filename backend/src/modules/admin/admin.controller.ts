@@ -76,6 +76,31 @@ export async function deleteProperty(request: FastifyRequest<{ Params: IdParam }
   return success(result);
 }
 
+// Diagnostics
+
+/**
+ * What the app sees for this request behind the hosting proxy. Compare `ip` with
+ * your real public IP to confirm TRUST_PROXY (see README: Deploying to Render).
+ */
+export async function requestDiagnostics(request: FastifyRequest) {
+  const header = (name: string) => {
+    const value = request.headers[name];
+    return Array.isArray(value) ? value.join(", ") : (value ?? null);
+  };
+  return success({
+    ip: request.ip,
+    ipChain: request.ips ?? [request.ip],
+    remoteAddress: request.socket.remoteAddress ?? null,
+    protocol: request.protocol,
+    headers: {
+      "x-forwarded-for": header("x-forwarded-for"),
+      "x-forwarded-proto": header("x-forwarded-proto"),
+      "true-client-ip": header("true-client-ip"),
+      "cf-connecting-ip": header("cf-connecting-ip"),
+    },
+  });
+}
+
 // Bookings
 
 export async function listBookings(request: FastifyRequest<{ Querystring: ListAdminBookingsQuery }>) {

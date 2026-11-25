@@ -18,7 +18,13 @@ const originList = z
   )
   .pipe(z.array(z.url({ protocol: /^https?$/ })).min(1));
 
-const optionalInt = (min: number, max: number) =>
+/** "true"/"false"/"1"/"0" (case-insensitive). z.coerce.boolean would turn "false" into true. */
+const flag = z
+  .enum(["true", "false", "1", "0", "TRUE", "FALSE", "True", "False"])
+  .transform((v) => v === "1" || v.toLowerCase() === "true")
+  .default(false);
+
+const optionalInt =(min: number, max: number) =>
   z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(min).max(max).optional());
 
 export const envSchema = z
@@ -38,12 +44,27 @@ export const envSchema = z
     TRUST_PROXY: optionalInt(0, 10),
     /** Max requests per minute per IP to /api/auth/* (Fastify bridge and Better Auth sign-in/up). */
     AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+    /** Apply pending migrations when the server boots (hosts without a pre-deploy step). */
+    MIGRATE_ON_START: flag,
+    /**
+     * Frontend and API on different sites (e.g. app.vercel.app + api.onrender.com):
+     * session cookies become SameSite=None; Secure; Partitioned. Not needed when both
+     * share a domain (kejalink.co.ke + api.kejalink.co.ke).
+     */
+    CROSS_SITE_COOKIES: flag,
 
     CLOUDINARY_CLOUD_NAME: z.string().min(1),
     CLOUDINARY_API_KEY: z.string().min(1),
     CLOUDINARY_API_SECRET: z.string().min(1),
   })
   .superRefine((e, ctx) => {
+    if (e.CROSS_SITE_COOKIES && !e.BETTER_AUTH_URL.startsWith("https://")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["CROSS_SITE_COOKIES"],
+        message: "CROSS_SITE_COOKIES requires an https BETTER_AUTH_URL (SameSite=None cookies must be Secure)",
+      });
+    }
     if (e.NODE_ENV === "production" && !e.BETTER_AUTH_URL.startsWith("https://")) {
       ctx.addIssue({
         code: "custom",

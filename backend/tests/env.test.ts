@@ -32,6 +32,18 @@ describe("environment validation", () => {
     expect(() => parseEnv({ ...base, BETTER_AUTH_SECRET: "" })).toThrow(/BETTER_AUTH_SECRET/);
   });
 
+  it("parses MIGRATE_ON_START / CROSS_SITE_COOKIES flags strictly", () => {
+    expect(parseEnv(base)).toMatchObject({ MIGRATE_ON_START: false, CROSS_SITE_COOKIES: false });
+    expect(parseEnv({ ...base, MIGRATE_ON_START: "true" }).MIGRATE_ON_START).toBe(true);
+    expect(parseEnv({ ...base, MIGRATE_ON_START: "false" }).MIGRATE_ON_START).toBe(false);
+    expect(parseEnv({ ...base, MIGRATE_ON_START: "1" }).MIGRATE_ON_START).toBe(true);
+    expect(() => parseEnv({ ...base, MIGRATE_ON_START: "yes" })).toThrow(/MIGRATE_ON_START/);
+    expect(() => parseEnv({ ...base, CROSS_SITE_COOKIES: "true" })).toThrow(/CROSS_SITE_COOKIES requires an https/);
+    expect(
+      parseEnv({ ...base, CROSS_SITE_COOKIES: "true", BETTER_AUTH_URL: "https://api.example.test" }).CROSS_SITE_COOKIES,
+    ).toBe(true);
+  });
+
   it("parses a comma-separated FRONTEND_URL list", () => {
     const env = parseEnv({ ...base, FRONTEND_URL: "https://kejalink.co.ke, https://www.kejalink.co.ke/ ,http://localhost:3000" });
     expect(env.FRONTEND_URL).toEqual(["https://kejalink.co.ke", "https://www.kejalink.co.ke", "http://localhost:3000"]);
