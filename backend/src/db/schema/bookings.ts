@@ -45,6 +45,10 @@ export const bookings = pgTable(
     uniqueIndex("bookings_one_pending_per_seeker_property_idx")
       .on(t.propertyId, t.seekerId)
       .where(sql`${t.status} = 'PENDING'`),
+    // At most one CONFIRMED booking per property: DB backstop for the confirm flow's row locks.
+    uniqueIndex("bookings_one_confirmed_per_property_idx")
+      .on(t.propertyId)
+      .where(sql`${t.status} = 'CONFIRMED'`),
   ],
 );
 

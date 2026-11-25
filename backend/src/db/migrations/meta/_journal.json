@@ -15,6 +15,13 @@
       "when": 1790615398870,
       "tag": "0001_boring_shiver_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795591476504,
+      "tag": "0002_auth_integrity",
+      "breakpoints": true
     }
   ]
 }
