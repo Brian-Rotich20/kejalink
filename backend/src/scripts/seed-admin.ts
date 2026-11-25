@@ -24,7 +24,8 @@ export const seedAdminInputSchema = z.object({
 export type SeedAdminResult = { userId: string; created: boolean };
 
 export async function seedAdmin(source: NodeJS.ProcessEnv): Promise<SeedAdminResult> {
-  const parsed = seedAdminInputSchema.safeParse(source);
+  const defined = Object.fromEntries(Object.entries(source).filter(([, value]) => value !== ""));
+  const parsed = seedAdminInputSchema.safeParse(defined);
   if (!parsed.success) {
     const problems = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Invalid admin seed configuration:\n${problems}`);

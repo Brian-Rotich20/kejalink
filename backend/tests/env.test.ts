@@ -25,6 +25,13 @@ describe("environment validation", () => {
     expect(() => parseEnv({ ...base, NODE_ENV: "production" })).toThrow(/BETTER_AUTH_URL: BETTER_AUTH_URL must use https/);
   });
 
+  it("treats blank values (as copied from .env.example) as unset", () => {
+    const env = parseEnv({ ...base, HOST: "", PORT: "", LOG_LEVEL: "", TRUST_PROXY: "", AUTH_RATE_LIMIT_MAX: "" });
+    expect(env).toMatchObject({ HOST: "127.0.0.1", PORT: 5000, TRUST_PROXY: 0, AUTH_RATE_LIMIT_MAX: 10 });
+    expect(env.LOG_LEVEL).toBeUndefined();
+    expect(() => parseEnv({ ...base, BETTER_AUTH_SECRET: "" })).toThrow(/BETTER_AUTH_SECRET/);
+  });
+
   it("parses a comma-separated FRONTEND_URL list", () => {
     const env = parseEnv({ ...base, FRONTEND_URL: "https://kejalink.co.ke, https://www.kejalink.co.ke/ ,http://localhost:3000" });
     expect(env.FRONTEND_URL).toEqual(["https://kejalink.co.ke", "https://www.kejalink.co.ke", "http://localhost:3000"]);

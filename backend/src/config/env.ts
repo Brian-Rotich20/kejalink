@@ -66,7 +66,9 @@ export type Env = z.infer<typeof envSchema>;
 
 /** Parse and validate an environment. Throws a readable error listing names only, never values. */
 export function parseEnv(source: NodeJS.ProcessEnv): Env {
-  const result = envSchema.safeParse(source);
+  // `KEY=` (blank, as in .env.example) means "not set": optional keys take their default.
+  const defined = Object.fromEntries(Object.entries(source).filter(([, value]) => value !== ""));
+  const result = envSchema.safeParse(defined);
   if (!result.success) {
     const problems = result.error.issues
       .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
