@@ -5,7 +5,7 @@ import { success } from "./lib/response";
 import { registerCors } from "./plugins/cors";
 import { registerErrorHandler } from "./plugins/error-handler";
 import { registerRateLimit } from "./plugins/rate-limit";
-import { authenticate } from "./middleware/auth.middleware"
+import { registerAuth } from "./plugins/auth";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { userRoutes } from "./modules/users/user.routes";
 
@@ -21,11 +21,11 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
   // Zod is the single validation/serialization layer.
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
-  app.addHook("preHandler", authenticate);
 
   registerErrorHandler(app);
   await registerCors(app);
   await registerRateLimit(app, opts?.rateLimitMax === undefined ? {} : { max: opts.rateLimitMax });
+  registerAuth(app);
 
   // All API routes live under /api.
   await app.register(

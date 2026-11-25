@@ -1,12 +1,12 @@
-export type UserRole = "TENANT" | "SEEKER" | "ADMIN";
+import type { UserRole, UserStatus } from "../../db/schema/enums";
 
- export type UserStatus = "ACTIVE" | "SUSPENDED" | "BANNED";
+export type { UserRole, UserStatus };
 
- export type AuthenticatedUser = {
-    id : string;
-    name: string;
-    email: string;
-    image: string | null;
-    role: UserRole;
-    status: UserStatus;
- }
+export type AuthenticatedUser = {
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  role: UserRole;
+  status: UserStatus;
+};

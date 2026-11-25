@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { UnauthorizedError } from "../../lib/errors";
 import { success } from "../../lib/response";
+import { getUser } from "../../plugins/auth";
 import * as userService from "./user.service";
 import type { UpdateUserProfileSchema } from "./user.schema";
 
@@ -11,14 +11,14 @@ import type { UpdateUserProfileSchema } from "./user.schema";
  */
 
 export async function getMe(request: FastifyRequest, _reply: FastifyReply) {
-  if (!request.user) throw new UnauthorizedError();
-  return success(await userService.getUserProfile(request.user.id));
+  const user = getUser(request);
+  return success(await userService.getUserProfile(user.id));
 }
 
 export async function updateMe(
   request: FastifyRequest<{ Body: UpdateUserProfileSchema }>,
   _reply: FastifyReply,
 ) {
-  if (!request.user) throw new UnauthorizedError();
-  return success(await userService.updateUserProfile(request.user.id, request.body));
+  const user = getUser(request);
+  return success(await userService.updateUserProfile(user.id, request.body));
 }
