@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "test:watch": "vitest",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
-    "seed:admin:prod": "node dist/scripts/seed-admin.js"
+    "seed:admin:prod": "node dist/scripts/seed-admin.js",
+    "db:migrate:prod": "node dist/scripts/migrate.js"
   },
   "keywords": [],
   "author": "",

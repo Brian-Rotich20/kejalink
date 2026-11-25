@@ -1,0 +1,14 @@
+node_modules
+dist
+.drizzle
+.env
+.env.*
+!.env.example
+tests
+coverage
+docs
+*.log
+.git
+.github
+Dockerfile
+.dockerignore
