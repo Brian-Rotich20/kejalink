@@ -8,6 +8,7 @@ import { registerRateLimit } from "./plugins/rate-limit";
 import { registerAuth } from "./plugins/auth";
 import { registerMultipart } from "./plugins/multipart";
 import { authRoutes } from "./modules/auth/auth.routes";
+import { bookingRoutes } from "./modules/bookings/booking.routes";
 import { healthRoutes } from "./modules/health/health.routes";
 import { propertyRoutes } from "./modules/properties/property.routes";
 import { uploadRoutes } from "./modules/uploads/upload.routes";
@@ -41,6 +42,7 @@ export async function buildApp(opts?: { rateLimitMax?: number }) {
       await api.register(userRoutes, { prefix: "/users" });
       await api.register(propertyRoutes, { prefix: "/properties" });
       await api.register(uploadRoutes, { prefix: "/properties" });
+      await api.register(bookingRoutes, { prefix: "/bookings" });
     },
     { prefix: "/api" },
   );
