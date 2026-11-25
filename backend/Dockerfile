@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # ── Build ────────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS build
+# glibc base: TypeScript 7's native compiler package is not installed on Alpine (musl).
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci

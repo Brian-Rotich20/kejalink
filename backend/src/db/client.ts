@@ -7,6 +7,8 @@ const queryClient = postgres(env.DATABASE_URL, {
   connect_timeout: 5,
   max: 10,
   idle_timeout: 20,
+  // Postgres NOTICEs (e.g. "already exists, skipping") would bypass pino as raw console output.
+  onnotice: () => {},
   // Server-side limits so a slow query or a stuck transaction cannot hold a
   // pooled connection (and its row locks) forever.
   connection: {
