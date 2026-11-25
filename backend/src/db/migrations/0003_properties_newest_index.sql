@@ -1,0 +1,1 @@
+CREATE INDEX "properties_newest_idx" ON "properties" USING btree ("created_at" DESC NULLS FIRST,"id" DESC NULLS FIRST) WHERE "properties"."status" = 'PUBLISHED' AND "properties"."deleted_at" IS NULL;

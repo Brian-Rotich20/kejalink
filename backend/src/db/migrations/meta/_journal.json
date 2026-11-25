@@ -22,6 +22,13 @@
       "when": 1795591476504,
       "tag": "0002_auth_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795592236409,
+      "tag": "0003_properties_newest_index",
+      "breakpoints": true
     }
   ]
 }

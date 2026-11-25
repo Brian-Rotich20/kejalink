@@ -61,6 +61,10 @@ export const properties = pgTable(
     index("properties_discovery_idx")
       .on(t.county, t.propertyType, t.priceAmount)
       .where(sql`${t.status} = 'PUBLISHED' AND ${t.deletedAt} IS NULL`),
+    // Default discovery sort (newest first, id tiebreaker) over the same live set.
+    index("properties_newest_idx")
+      .on(t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+      .where(sql`${t.status} = 'PUBLISHED' AND ${t.deletedAt} IS NULL`),
     check("properties_price_positive", sql`${t.priceAmount} > 0`),
     check("properties_bedrooms_nonneg", sql`${t.bedrooms} IS NULL OR ${t.bedrooms} >= 0`),
     check("properties_bathrooms_nonneg", sql`${t.bathrooms} IS NULL OR ${t.bathrooms} >= 0`),
